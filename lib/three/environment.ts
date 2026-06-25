@@ -212,9 +212,12 @@ export function buildOcean(): EnvPart {
   const sea = makeWater(22, 22, 36, -0.3);
   group.add(sea.mesh);
 
-  // Four waterfalls spilling off the diamond edges into mist.
-  const falls: { mesh: THREE.Mesh; matMap: THREE.Texture }[] = [];
-  const foamLips: THREE.MeshToonMaterial[] = [];
+  // Four waterfalls spilling off the diamond edges into mist. Each fall's TOP
+  // is tucked just below the sea surface (top at y=-0.42, under the wave troughs
+  // at ~-0.36) so its hard top edge never pokes through the seam — the water
+  // appears to pour straight out from under the foam.
+  const falls: { mesh: THREE.Mesh }[] = [];
+  const foam: { mat: THREE.MeshToonMaterial; base: number; phase: number }[] = [];
   const fallMat = () =>
     new THREE.MeshBasicMaterial({
       color: color(P.surfCyan),
@@ -228,22 +231,50 @@ export function buildOcean(): EnvPart {
     [11, 0, 0],
     [-11, 0, 0],
   ];
-  for (const [ex, , ez] of edges) {
+  edges.forEach(([ex, , ez], ei) => {
     const f = new THREE.Mesh(new THREE.PlaneGeometry(8, 6), fallMat());
-    f.position.set(ex, -3, ez);
+    f.position.set(ex, -3.42, ez); // top now at y=-0.42, hidden under the foam
     if (ex !== 0) f.rotation.y = Math.PI / 2;
-    falls.push({ mesh: f, matMap: f.material as unknown as THREE.Texture });
+    falls.push({ mesh: f });
     group.add(f);
-    // a crisp WHITE foam crest right at the lip, where the stream leaves the
-    // sea surface (cloned material so its opacity can churn independently).
-    const lipMat = glass(P.foam, 0.85, 0.5).clone();
-    const lip = box(group, P.foam, 8.2, 0.24, 0.7, ex, -0.32, ez, { mat: lipMat });
-    if (ex !== 0) lip.rotation.y = Math.PI / 2;
-    foamLips.push(lipMat);
+
+    // FOAM CREST — an irregular row of little froth chunks (varied size, height,
+    // jitter and opacity) sitting over a thin continuous base, hiding the
+    // sea→waterfall seam. The broken silhouette reads as churn, not a white bar.
+    const alongX = ex === 0; // ±Z edges run along world X; ±X edges along world Z
+    const HALF = 4.0;
+    // a thin continuous base so the seam stays covered in the gaps between chunks
+    const baseMat = glass(P.foam, 0.7, 0.12).clone();
+    box(
+      group, P.foam,
+      alongX ? 8.0 : 0.55, 0.3, alongX ? 0.55 : 8.0,
+      ex, -0.4, ez,
+      { mat: baseMat },
+    );
+    foam.push({ mat: baseMat, base: 0.7, phase: ei * 0.9 });
+    // frothy bumps on top — deterministic per (edge, k) so they stay put
+    const N = 15;
+    for (let k = 0; k < N; k++) {
+      const r1 = rng(ei * 53 + k, 17);
+      const r2 = rng(ei * 53 + k, 29);
+      const r3 = rng(ei * 53 + k, 41);
+      const a = (((k + 0.5) / N) * 2 - 1) * HALF + (r1 - 0.5) * 0.3; // along the edge
+      const jit = (r3 - 0.5) * 0.55; // wobble across the rim
+      const s = 0.3 + r1 * 0.5; // chunk size
+      const h = 0.18 + r2 * 0.3; // chunk height
+      const px = ex + (alongX ? a : jit);
+      const pz = ez + (alongX ? jit : a);
+      const py = -0.3 + h * 0.5 - 0.04 + (r2 - 0.5) * 0.06; // bumpy top, sat in the water
+      const op = 0.5 + r1 * 0.45;
+      const mat = glass(P.foam, op, 0.1 + r2 * 0.18).clone();
+      box(group, P.foam, s, h, s, px, py, pz, { mat });
+      foam.push({ mat, base: op, phase: ei * 1.7 + k * 0.6 });
+    }
+
     // mist puff at the bottom
     const mist = box(group, P.foam, 7, 1.4, 1.4, ex, -6.2, ez, { opacity: 0.25 });
     if (ex !== 0) mist.rotation.y = Math.PI / 2;
-  }
+  });
 
   return {
     group,
@@ -252,7 +283,14 @@ export function buildOcean(): EnvPart {
       for (let i = 0; i < falls.length; i++) {
         const m = falls[i].mesh.material as THREE.MeshBasicMaterial;
         m.opacity = 0.4 + 0.18 * osc(t, 0.6, i);
-        foamLips[i].opacity = 0.7 + 0.18 * osc(t, 0.5, i * 1.3);
+      }
+      // flicker each froth chunk's opacity a touch so the foam keeps churning
+      for (const fo of foam) {
+        fo.mat.opacity = THREE.MathUtils.clamp(
+          fo.base + 0.14 * Math.sin(t * 2.4 + fo.phase),
+          0.2,
+          1,
+        );
       }
     },
   };
