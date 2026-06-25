@@ -33,7 +33,7 @@ export function buildHub(): BuiltModel {
   cyl(group, P.sand, 1.66, 1.66, 0.07, 0, DECK + 0.02, 0, 18); // sand top cap
   const F = DECK + 0.06; // standing surface (feet height)
 
-  const HOODIE = P.oceanTeal;
+  const HOODIE = 0x1d3d47; // deep teal — a darker hoodie
 
   // ---------- character — front faces +Z ----------
   // shoes + legs
@@ -48,6 +48,15 @@ export function buildHub(): BuiltModel {
   box(torso, P.foam, 0.05, 0.5, 0.02, 0, 0.3, 0.18); // zipper
   box(torso, P.dusk, 0.34, 0.12, 0.02, 0, 0.16, 0.18); // pocket
   box(torso, P.surfCyan, 0.5, 0.06, 0.34, 0, 0.62, 0, { emissive: 0.12 }); // collar
+  // hood bunched behind the neck + two drawstrings down the chest (cozy details)
+  box(torso, HOODIE, 0.48, 0.2, 0.16, 0, 0.64, -0.13); // hood (down)
+  box(torso, P.dusk, 0.4, 0.13, 0.04, 0, 0.66, -0.18); // hood inner shadow
+  box(torso, P.foam, 0.03, 0.2, 0.03, -0.07, 0.52, 0.18); // drawstring L
+  box(torso, P.foam, 0.03, 0.2, 0.03, 0.07, 0.52, 0.18); // drawstring R
+  box(torso, P.foam, 0.05, 0.05, 0.05, -0.07, 0.41, 0.19); // aglet L
+  box(torso, P.foam, 0.05, 0.05, 0.05, 0.07, 0.41, 0.19); // aglet R
+  // a soft neck so the head doesn't float on the shoulders
+  box(torso, P.skin, 0.2, 0.15, 0.2, 0, 0.71, 0);
 
   const shY = F + 1.18; // shoulder height
   const headY = F + 1.5; // head center
@@ -57,14 +66,39 @@ export function buildHub(): BuiltModel {
   head.position.set(0, headY, 0);
   group.add(head);
   voxel(head, P.skin, 0, 0, 0, 0.46);
-  box(head, P.hair, 0.5, 0.18, 0.5, 0, 0.28, 0); // hair cap
+  box(head, P.hair, 0.5, 0.18, 0.5, 0, 0.24, 0); // hair cap
   box(head, P.hair, 0.5, 0.08, 0.06, 0, 0.16, 0.24); // front fringe
-  const eyeL = pivot(head, -0.1, 0.02, 0.235);
-  const eyeR = pivot(head, 0.1, 0.02, 0.235);
+  // fuller, softer hair: a top tuft, side sweeps, back volume + a swept fringe
+  box(head, P.hair, 0.5, 0.08, 0.5, 0, 0.28, 0); // top volume (shorter)
+  box(head, P.hair, 0.1, 0.34, 0.46, -0.235, 0.06, -0.03); // left side sweep
+  box(head, P.hair, 0.1, 0.34, 0.46, 0.235, 0.06, -0.03); // right side sweep
+  box(head, P.hair, 0.5, 0.32, 0.12, 0, 0.12, -0.235); // back hair
+  box(head, P.hair, 0.18, 0.12, 0.05, -0.13, 0.19, 0.24); // swept fringe strand L
+  box(head, P.hair, 0.12, 0.16, 0.05, 0.13, 0.16, 0.24); // swept fringe strand R
+  box(head, P.earth, 0.34, 0.045, 0.06, -0.04, 0.3, 0.2); // soft lighter highlight
+  const eyeL = pivot(head, -0.1, 0.02, 0.252);
+  const eyeR = pivot(head, 0.1, 0.02, 0.252);
   voxel(eyeL, P.abyss, 0, 0, 0, 0.07);
   voxel(eyeR, P.abyss, 0, 0, 0, 0.07);
-  box(head, P.slate, 0.32, 0.03, 0.02, 0, 0.02, 0.24); // glasses bridge
-  box(head, P.earth, 0.12, 0.03, 0.02, 0, -0.12, 0.235); // little smile
+  voxel(eyeL, P.foam, 0.02, 0.022, 0.03, 0.025); // catch-light (sparkle)
+  voxel(eyeR, P.foam, 0.02, 0.022, 0.03, 0.025);
+
+  // ----- neat round glasses (researcher charm): slim-framed glass lenses -----
+  for (const ex of [-0.1, 0.1]) {
+    box(head, P.slate, 0.16, 0.16, 0.015, ex, 0.02, 0.231); // frame
+    box(head, P.surfCyan, 0.125, 0.125, 0.012, ex, 0.02, 0.238, { opacity: 0.4 }); // glass lens
+    box(head, P.slate, 0.022, 0.022, 0.28, Math.sign(ex) * 0.19, 0.03, 0.08); // temple arm
+  }
+  box(head, P.slate, 0.08, 0.026, 0.02, 0, 0.03, 0.243); // bridge
+
+  // ----- eyebrows, rosy cheeks, a gentle smile -----
+  box(head, P.hair, 0.12, 0.028, 0.02, -0.1, 0.14, 0.238);
+  box(head, P.hair, 0.12, 0.028, 0.02, 0.1, 0.14, 0.238);
+  voxel(head, P.horizon, -0.17, -0.08, 0.2, 0.075); // blush L
+  voxel(head, P.horizon, 0.17, -0.08, 0.2, 0.075); // blush R
+  box(head, P.earth, 0.1, 0.026, 0.02, 0, -0.135, 0.238); // mouth
+  voxel(head, P.earth, -0.07, -0.115, 0.236, 0.03); // up-ticked corner L
+  voxel(head, P.earth, 0.07, -0.115, 0.236, 0.03); // up-ticked corner R
 
   // ---------- tablet arm (left), holding the tablet ----------
   box(group, HOODIE, 0.15, 0.34, 0.17, -0.36, shY - 0.13, 0.04); // upper arm
@@ -132,27 +166,13 @@ export function buildHub(): BuiltModel {
   bulb.material = (bulb.material as THREE.MeshToonMaterial).clone();
   const bulbMat = bulb.material as THREE.MeshToonMaterial;
 
-  // ---------- selection burst: voxel "hello" sparks around the head ----------
-  // Created ONCE at build; animated only via `sel`. Invisible while idle.
-  const sparks = pivot(group, 0, headY, 0); // co-located with the head
-  const sparkMeshes: THREE.Mesh[] = [];
-  const SPARK_N = 6;
-  const sparkPal = [P.amber, P.surfCyan, P.magenta, P.gold, P.foam, P.synapse];
-  for (let i = 0; i < SPARK_N; i++) {
-    const a = (i / SPARK_N) * TAU;
-    const s = voxel(sparks, sparkPal[i], Math.cos(a) * 0.34, 0.34 + Math.sin(a) * 0.18, 0.1, 0.07, {
-      emissive: 1.2,
-    });
-    s.material = (s.material as THREE.MeshToonMaterial).clone();
-    s.visible = false;
-    sparkMeshes.push(s);
-  }
-
   group.rotation.y = Math.PI / 4; // face the camera corner
 
   const selClock = makeSelectionClock();
   const holoBaseY = F + 1.02;
   const headBaseY = headY; // head group's resting y (for the hop)
+  const headBaseRotX = head.rotation.x; // resting head pitch (for the nod)
+  const headBaseRotZ = head.rotation.z; // resting head roll (for the tilt)
   const torsoBaseY = F + 0.6; // torso pivot resting y
   const BLINK = 5.5;
 
@@ -164,6 +184,8 @@ export function buildHub(): BuiltModel {
       const flash = sel >= 0 ? Math.exp(-sel * 4) : 0; // 1→0 glow boost
       const wobble = sel >= 0 ? Math.exp(-sel * 5) * Math.sin(sel * 22) : 0; // overshoot+settle
       const hop = sel >= 0 ? Math.sin(Math.min(sel, 0.5) / 0.5 * Math.PI) * Math.exp(-sel * 1.5) : 0; // a single bounce
+      // a soft, friendly "hello there!" envelope that rises fast and eases out (~1s)
+      const greet = sel >= 0 ? Math.sin(Math.min(sel, 0.55) / 0.55 * Math.PI) * Math.exp(-sel * 2) : 0;
 
       // breathing (+ an excited squash-pop on click)
       torso.scale.y = 1 + 0.015 + 0.015 * osc(t, 2.4) + wobble * 0.05;
@@ -176,6 +198,12 @@ export function buildHub(): BuiltModel {
       // a cheerful hop: lift head + torso together (legs stay planted)
       head.position.y = headBaseY + hop * 0.16;
       torso.position.y = torsoBaseY + hop * 0.12;
+
+      // warm greeting head-language: a quick friendly nod + a gentle head tilt
+      // that reads as "hi, nice to meet you" and settles back to idle.
+      const nod = sel >= 0 ? Math.sin(sel * 9) * Math.exp(-sel * 3.4) : 0; // dip-and-recover nod
+      head.rotation.x = headBaseRotX + greet * 0.16 + nod * 0.08; // chin dips toward viewer
+      head.rotation.z = headBaseRotZ + greet * 0.12; // endearing little tilt
 
       // wave arm: gentle outward sway + a hello wave every ~6s,
       // plus a bigger, snappier one-shot wave on click.
@@ -191,9 +219,10 @@ export function buildHub(): BuiltModel {
         waveZ = sway;
       }
       if (sel >= 0) {
-        // raise the arm high and wag it fast, settling within ~1s
+        // a friendly TWO-BEAT hello: raise the arm and give two clear waves,
+        // easing back to idle within ~1s (reads as "hi! :)" not a frantic shake)
         const env = Math.exp(-sel * 2.2);
-        waveZ += env * (1.9 + Math.sin(sel * 26) * 0.55);
+        waveZ += env * (1.85 + Math.sin(sel * 12) * 0.7);
       }
       waveArm.rotation.z = waveZ;
 
@@ -207,39 +236,23 @@ export function buildHub(): BuiltModel {
         0.5 + 0.8 * Math.abs(osc(t, 1.1));
       (neuronB.material as THREE.MeshToonMaterial).emissiveIntensity =
         0.5 + 0.8 * Math.abs(osc(t, 1.1, 1.6));
-      screenMat.emissiveIntensity = 0.6 + 0.15 * osc(t, 2) + hover * 0.2;
+      // tablet screen warms up with a friendly greeting glow on tap
+      screenMat.emissiveIntensity = 0.6 + 0.15 * osc(t, 2) + hover * 0.2 + greet * 0.7;
 
-      // floating nameplate bob + glow (+ a pop & flash on click)
-      holo.position.y = holoBaseY + 0.05 * osc(t, 3);
+      // floating nameplate: bob + glow, and on tap it gives a friendly pop &
+      // brighten (a little hop of its own) to "say hi" alongside the character.
+      holo.position.y = holoBaseY + 0.05 * osc(t, 3) + greet * 0.1;
       panelMat.opacity = clamp(
-        0.4 + 0.18 * (0.5 + 0.5 * osc(t, 2.5)) + hover * 0.1 + flash * 0.45,
+        0.4 + 0.18 * (0.5 + 0.5 * osc(t, 2.5)) + hover * 0.1 + flash * 0.45 + greet * 0.25,
         0,
         1,
       );
-      const holoPop = 1 + wobble * 0.12;
+      const holoPop = 1 + greet * 0.16 + wobble * 0.08;
       holo.scale.set(holoPop, holoPop, 1);
 
       // lamp flicker (+ a warm flare on click)
       bulbMat.emissiveIntensity =
         1.2 * (1 + 0.08 * osc(t, 0.4) * (0.6 + 0.4 * osc(t, 0.13))) + flash * 0.9;
-
-      // selection sparks: a quick voxel "yay!" burst that pops out from the
-      // head, then fades. Fully hidden when idle.
-      if (sel >= 0) {
-        const burst = Math.sin(Math.min(sel, 0.45) / 0.45 * Math.PI) * Math.exp(-sel * 2.4);
-        const out = 1 + Math.min(sel, 0.5) * 1.4; // fling outward
-        for (let i = 0; i < sparkMeshes.length; i++) {
-          const s = sparkMeshes[i];
-          s.visible = burst > 0.02;
-          const a = (i / SPARK_N) * TAU;
-          s.position.set(Math.cos(a) * 0.34 * out, 0.34 + Math.sin(a) * 0.18 * out, 0.1);
-          s.scale.setScalar(clamp(burst * 1.3, 0, 1.2));
-          (s.material as THREE.MeshToonMaterial).emissiveIntensity = 0.6 + burst * 1.6;
-        }
-        sparks.rotation.z = sel * 1.5; // a little celebratory swirl
-      } else if (sparkMeshes[0].visible) {
-        for (const s of sparkMeshes) s.visible = false; // reset neutral
-      }
     },
   };
 }

@@ -68,17 +68,15 @@ const LANDMARKS: Placement[] = [
   { id: 'involvement', label: 'Involvement & Service', build: buildInvolvement, pos: [6, -1], scale: 1 },
 ];
 
-/** Glowing data-cable spokes from the hub to each landmark, with energy dots. */
+/** Glowing data-cable spokes from the hub to each landmark. */
 function buildCables(): { group: THREE.Group; update: (t: number) => void } {
   const group = new THREE.Group();
   const y = GRASS_TOP + 0.06;
-  const dots: { mesh: THREE.Mesh; len: number; dir: THREE.Vector3; phase: number }[] = [];
 
-  LANDMARKS.forEach((L, i) => {
+  LANDMARKS.forEach((L) => {
     if (L.id === 'about') return; // hub is the origin
     const target = new THREE.Vector3(L.pos[0], y, L.pos[1]);
     const len = target.length();
-    const dir = target.clone().normalize();
     // thin emissive line lying on the grass
     const line = new THREE.Mesh(
       new THREE.BoxGeometry(len, 0.05, 0.12),
@@ -87,20 +85,13 @@ function buildCables(): { group: THREE.Group; update: (t: number) => void } {
     line.position.copy(target.clone().multiplyScalar(0.5));
     line.rotation.y = -Math.atan2(target.z, target.x);
     group.add(line);
-
-    const dot = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.18), emit(P.foam, 1));
-    group.add(dot);
-    dots.push({ mesh: dot, len, dir, phase: i / LANDMARKS.length });
   });
 
   return {
     group,
-    update: (t) => {
-      for (const d of dots) {
-        const f = ((t * 0.35 + d.phase) % 1); // hub -> landmark travel
-        d.mesh.position.copy(d.dir).multiplyScalar(f * d.len);
-        d.mesh.position.y = y + 0.04;
-      }
+    update: (_t: number) => {
+      // Energy dots removed; cyan cable lines are static. No-op kept so the
+      // world update loop's `cables.update(t)` call stays valid.
     },
   };
 }

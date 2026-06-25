@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { P, color, mat, emit, box, cyl, cone, sphere, dome, voxel, pivot, osc, TAU } from './kit';
+import { P, color, mat, emit, glass, box, cyl, cone, sphere, dome, voxel, pivot, osc, TAU } from './kit';
 import { type Mark, MARK_COLORS } from '../marks-types';
 
 export interface EnvPart {
@@ -18,10 +18,10 @@ export function buildSky(): EnvPart {
     side: THREE.BackSide,
     depthWrite: false,
     uniforms: {
-      top: { value: color(P.abyss) }, // deep top
-      mid: { value: color(P.dusk) }, // indigo body
-      bot: { value: color(0x3b2f4a) }, // deep dusky plum near the horizon
-      glow: { value: color(P.horizon) }, // warm rose glow band
+      top: { value: color(0x252c4a) }, // lifted indigo zenith (brighter backdrop)
+      mid: { value: color(0x3d3a68) }, // twilight indigo body
+      bot: { value: color(0x584a70) }, // lighter dusky violet near the horizon
+      glow: { value: color(0xc97c84) }, // warm rose glow band
     },
     vertexShader: `
       varying vec3 vPos;
@@ -152,24 +152,37 @@ export function makeWater(
 
   const pos = geo.attributes.position as THREE.BufferAttribute;
   const col = geo.attributes.color as THREE.BufferAttribute;
-  const base = new Float32Array(count);
-  for (let i = 0; i < count; i++) base[i] = 0;
   const teal = color(P.oceanTeal);
   const cyan = color(P.surfCyan);
+  const foam = color(P.foam);
+
+  // Precompute a soft foam-ring weight per vertex (Chebyshev distance to the
+  // square island edge) so foam HUGS the shoreline instead of blobbing across.
+  const ring = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    const sq = Math.max(Math.abs(pos.getX(i)), Math.abs(pos.getZ(i)));
+    ring[i] = Math.exp(-Math.pow((sq - 9.0) / 0.9, 2));
+  }
 
   const update = (t: number) => {
     for (let i = 0; i < count; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
+      // calm, fine ripples — low amplitude so crests never wash over the rim
       const h =
-        Math.sin(x * 0.6 + t * 1.6) * 0.12 +
-        Math.cos(z * 0.5 - t * 1.2) * 0.12 +
-        Math.sin((x + z) * 0.3 + t * 0.8) * 0.06;
+        Math.sin(x * 0.5 + t * 1.15) * 0.025 +
+        Math.cos(z * 0.45 - t * 0.95) * 0.025 +
+        Math.sin((x + z) * 0.22 + t * 0.55) * 0.014;
       pos.setY(i, h);
-      const crest = THREE.MathUtils.clamp((h + 0.18) / 0.36, 0, 1);
-      const r = teal.r + (cyan.r - teal.r) * crest * crest;
-      const g = teal.g + (cyan.g - teal.g) * crest * crest;
-      const b = teal.b + (cyan.b - teal.b) * crest * crest;
+      const crest = THREE.MathUtils.clamp((h + 0.045) / 0.09, 0, 1);
+      let r = teal.r + (cyan.r - teal.r) * crest;
+      let g = teal.g + (cyan.g - teal.g) * crest;
+      let b = teal.b + (cyan.b - teal.b) * crest;
+      // foam brightens the shoreline ring (a little more on the crests)
+      const fw = ring[i] * (0.5 + 0.4 * crest);
+      r += (foam.r - r) * fw;
+      g += (foam.g - g) * fw;
+      b += (foam.b - b) * fw;
       col.setXYZ(i, r, g, b);
     }
     pos.needsUpdate = true;
@@ -183,8 +196,9 @@ export function makeWater(
 export function buildOcean(): EnvPart {
   const group = new THREE.Group();
 
-  // The surrounding sea the island sits in.
-  const sea = makeWater(22, 22, 30, -0.15);
+  // The surrounding sea the island sits in (lowered below the beach rim so its
+  // calm ripples no longer wash up over the sand/earth edge).
+  const sea = makeWater(22, 22, 36, -0.3);
   group.add(sea.mesh);
 
   // Four waterfalls spilling off the diamond edges into mist.
@@ -440,8 +454,23 @@ export function buildIsland(): EnvPart {
     });
   }
 
-  // Birds — small flapping voxel birds that orbit high around the island.
-  const birds: { grp: THREE.Group; wl: THREE.Object3D; wr: THREE.Object3D; a: number; r: number; y: number; spd: number }[] = [];
+  // Birds — small flapping voxel birds that wander high around the island.
+  // Each bird carries its own phases/speeds so no two retrace the same path:
+  // a slowly breathing orbit radius, layered out-of-phase altitude waves, and
+  // a flap-then-glide envelope. Banking/pitch are derived per frame from a
+  // finite-difference of the flight path (cheap, no stored prev-frame state).
+  interface Bird {
+    grp: THREE.Group; wl: THREE.Object3D; wr: THREE.Object3D;
+    a: number; r: number; y: number; spd: number;
+    // wandering orbit radius (slow secondary oscillation)
+    rAmp: number; rSpd: number; rPh: number;
+    // layered altitude waves (two out-of-phase, slow climbs/glides)
+    yAmp1: number; ySpd1: number; yPh1: number;
+    yAmp2: number; ySpd2: number; yPh2: number;
+    // flap-then-glide envelope + flap timing
+    flapSpd: number; envSpd: number; envPh: number; flapPh: number;
+  }
+  const birds: Bird[] = [];
   for (let i = 0; i < 3; i++) {
     const grp = new THREE.Group();
     box(grp, P.slate, 0.2, 0.13, 0.36, 0, 0, 0);
@@ -451,8 +480,32 @@ export function buildIsland(): EnvPart {
     const wr = pivot(grp, 0, 0.05, 0);
     box(wr, P.slate, 0.5, 0.06, 0.22, 0.3, 0, 0);
     group.add(grp);
-    birds.push({ grp, wl, wr, a: i * 2.2, r: 9.5 + i * 0.8, y: 4.2 + i * 0.7, spd: 0.18 + i * 0.03 });
+    birds.push({
+      grp, wl, wr,
+      a: i * 2.2, r: 9.5 + i * 0.8, y: 4.2 + i * 0.7, spd: 0.18 + i * 0.03,
+      rAmp: 1.1 + rng(i, 11) * 0.9, rSpd: 0.05 + rng(i, 12) * 0.04, rPh: rng(i, 13) * TAU,
+      yAmp1: 0.7 + rng(i, 14) * 0.5, ySpd1: 0.16 + rng(i, 15) * 0.08, yPh1: rng(i, 16) * TAU,
+      yAmp2: 0.35 + rng(i, 17) * 0.3, ySpd2: 0.33 + rng(i, 18) * 0.12, yPh2: rng(i, 19) * TAU,
+      flapSpd: 8 + rng(i, 20) * 2.5, envSpd: 0.55 + rng(i, 21) * 0.35, envPh: rng(i, 22) * TAU,
+      flapPh: rng(i, 23) * TAU,
+    });
   }
+  // Sample a bird's world position at an arbitrary time (for the path itself
+  // and for tiny finite-difference look-ahead used to derive bank + pitch).
+  const birdPos = (b: Bird, time: number, out: THREE.Vector3) => {
+    const a = b.a + time * b.spd;
+    const r = b.r + Math.sin(time * b.rSpd + b.rPh) * b.rAmp;
+    const y =
+      b.y +
+      Math.sin(time * b.ySpd1 + b.yPh1) * b.yAmp1 +
+      Math.sin(time * b.ySpd2 + b.yPh2) * b.yAmp2;
+    out.set(Math.cos(a) * r, y, Math.sin(a) * r);
+    return out;
+  };
+  // Reusable scratch vectors for the per-frame path finite-difference — these
+  // are allocated ONCE here, never inside the update loop.
+  const bP0 = new THREE.Vector3();
+  const bP1 = new THREE.Vector3();
 
   // Floating detached rock chunks (orbit slowly).
   const chunks: THREE.Mesh[] = [];
@@ -492,24 +545,54 @@ export function buildIsland(): EnvPart {
         );
         f.mat.emissiveIntensity = f.base * (0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t * 3 + f.phase * 2)));
       }
-      // Birds circle the island, flapping (wings pivot at the body center).
+      // Birds wander the island: bank into turns, climb & glide on layered
+      // altitude waves, pitch with vertical velocity, and flap-then-glide.
       for (const b of birds) {
-        const a = b.a + t * b.spd;
-        b.grp.position.set(Math.cos(a) * b.r, b.y + Math.sin(t * 0.6 + b.a) * 0.5, Math.sin(a) * b.r);
-        b.grp.rotation.y = -a + Math.PI / 2;
-        const flap = Math.sin(t * 9 + b.a) * 0.6;
-        b.wl.rotation.z = flap;
-        b.wr.rotation.z = -flap;
+        // Sample the path now and a hair ahead — gives heading + vertical
+        // velocity without storing any prev-frame state (eps in seconds).
+        const eps = 0.05;
+        birdPos(b, t, bP0);
+        birdPos(b, t + eps, bP1);
+        b.grp.position.copy(bP0);
+
+        // Heading from horizontal velocity (atan2(dz, dx)); face along travel.
+        const vx = bP1.x - bP0.x;
+        const vz = bP1.z - bP0.z;
+        const heading = Math.atan2(vz, vx);
+        // Body's nose is local +z, so yaw = -heading + π/2 (matches the old
+        // tangent facing, now driven by the actual wandering velocity).
+        b.grp.rotation.y = -heading + Math.PI / 2;
+
+        // Vertical velocity → gentle nose-up on climb, nose-down on descent.
+        const vy = (bP1.y - bP0.y) / eps;
+        b.grp.rotation.x = THREE.MathUtils.clamp(-vy * 0.5, -0.5, 0.5);
+
+        // Bank: lean into the turn by the heading change rate. The orbit
+        // sweeps one way, so sign is stable; scale by horizontal speed so
+        // faster passes lean harder. Negative roll banks toward the center.
+        const turn = -b.spd; // d(heading)/dt is ~ -spd for this CW-ish sweep
+        const hSpeed = Math.hypot(vx, vz) / eps;
+        b.grp.rotation.z = THREE.MathUtils.clamp(turn * hSpeed * 0.9, -0.6, 0.6);
+
+        // Flap-then-glide: a slow envelope opens (flap hard) then closes
+        // (glide). During glides hold the wings at a slight raised dihedral.
+        const env = 0.5 + 0.5 * Math.sin(t * b.envSpd + b.envPh); // 0..1
+        const flapAmp = 0.12 + env * env * 0.55; // mostly-glide between bursts
+        const dihedral = 0.18 * (1 - env); // wings raised when gliding
+        const flap = Math.sin(t * b.flapSpd + b.flapPh) * flapAmp;
+        b.wl.rotation.z = flap + dihedral;
+        b.wr.rotation.z = -flap - dihedral;
       }
     },
   };
 }
 
 /* ==================================================== VISITOR MARKS ===== */
-// Fireflies that visitors plant (persisted in Postgres). Each mark = a small
-// ground glint + a floating mote that drifts and twinkles. As visitors leave
-// traces the island glows brighter. These live on the default layer (drawn,
-// not raycast) so they never interfere with landmark hover/click picking.
+// Beacons that visitors plant (persisted in Postgres). Each mark = a ground
+// halo + a soft vertical light pillar + a bright bobbing gem in the visitor's
+// chosen color — deliberately DISTINCT from the ambient decor fireflies so a
+// visitor can spot their own trace. Drawn on the default layer (not raycast)
+// so they never interfere with landmark hover/click picking.
 
 export interface VisitorMarks {
   group: THREE.Group;
@@ -521,33 +604,43 @@ export interface VisitorMarks {
 export function buildVisitorMarks(initial: Mark[]): VisitorMarks {
   const group = new THREE.Group();
   const seen = new Set<number>();
-  const motes: {
-    mesh: THREE.Mesh; mat: THREE.MeshToonMaterial;
-    cx: number; cz: number; cy: number; rx: number; rz: number;
-    sx: number; sz: number; phase: number;
+  const beacons: {
+    g: THREE.Group; gem: THREE.Mesh;
+    gemMat: THREE.MeshToonMaterial; beamMat: THREE.MeshToonMaterial;
+    gemBaseY: number; phase: number;
   }[] = [];
-  const CAP = 220; // hard ceiling on rendered motes (drop oldest beyond this)
+  const CAP = 200; // hard ceiling on rendered beacons (drop oldest beyond this)
 
   function add(m: Mark) {
     if (seen.has(m.id)) return;
     seen.add(m.id);
     const hex = MARK_COLORS[m.color] ?? MARK_COLORS[0];
-    // ground glint — static, shared emissive (never mutated → safe to share)
-    voxel(group, hex, m.x, GY + 0.05, m.z, 0.12, { mat: emit(hex, 0.5) });
-    // floating mote — cloned material so it twinkles independently
-    const mat0 = glow(hex, 1.2);
     const i = seen.size;
-    const cy = 0.95 + (i % 5) * 0.12;
-    const mesh = voxel(group, hex, m.x, cy, m.z, 0.16, { mat: mat0 });
-    motes.push({
-      mesh, mat: mat0, cx: m.x, cz: m.z, cy,
-      rx: 0.18 + (i % 3) * 0.06, rz: 0.16 + (i % 4) * 0.05,
-      sx: 0.6 + (i % 5) * 0.13, sz: 0.5 + (i % 3) * 0.14,
-      phase: (i * 1.371) % TAU,
-    });
-    if (motes.length > CAP) {
-      const old = motes.shift();
-      if (old) group.remove(old.mesh);
+
+    // one beacon "stake" planted at the mark's spot on the grass
+    const g = pivot(group, m.x, GY, m.z);
+
+    // bright ground halo + inner core (static emissive — safe to share)
+    cyl(g, hex, 0.2, 0.2, 0.03, 0, 0.02, 0, 16, { emissive: 1.0 });
+    cyl(g, hex, 0.09, 0.09, 0.05, 0, 0.04, 0, 12, { emissive: 1.4 });
+
+    // TALL vertical light pillar so the beacon clears nearby props + landmarks
+    // and is easy to spot even when marks cluster (translucent; cloned so the
+    // opacity can breathe).
+    const beamMat = glass(hex, 0.42, 0.6).clone();
+    box(g, hex, 0.08, 2.4, 0.08, 0, 1.25, 0, { mat: beamMat });
+
+    // a bright gem hovering HIGH at the top — bobs, spins, pulses (cloned emissive)
+    const gemMat = glow(hex, 1.6);
+    const gem = voxel(g, hex, 0, 2.5, 0, 0.22, { mat: gemMat });
+    gem.rotation.y = Math.PI / 4; // diamond silhouette
+    gem.userData.mark = { id: m.id, color: m.color, x: m.x, z: m.z };
+
+    beacons.push({ g, gem, gemMat, beamMat, gemBaseY: 2.5, phase: (i * 1.371) % TAU });
+
+    if (beacons.length > CAP) {
+      const old = beacons.shift();
+      if (old) group.remove(old.g);
     }
   }
 
@@ -556,13 +649,11 @@ export function buildVisitorMarks(initial: Mark[]): VisitorMarks {
   return {
     group,
     update: (t) => {
-      for (const f of motes) {
-        f.mesh.position.set(
-          f.cx + Math.sin(t * f.sx + f.phase) * f.rx,
-          f.cy + Math.sin(t * f.sx * 0.7 + f.phase * 1.7) * 0.14,
-          f.cz + Math.cos(t * f.sz + f.phase) * f.rz,
-        );
-        f.mat.emissiveIntensity = 0.55 + 0.55 * (0.5 + 0.5 * Math.sin(t * 2.4 + f.phase));
+      for (const b of beacons) {
+        b.gem.position.y = b.gemBaseY + Math.sin(t * 1.6 + b.phase) * 0.12;
+        b.gem.rotation.y = Math.PI / 4 + t * 0.8;
+        b.gemMat.emissiveIntensity = 1.1 + 0.6 * (0.5 + 0.5 * Math.sin(t * 2.2 + b.phase));
+        b.beamMat.opacity = 0.28 + 0.16 * (0.5 + 0.5 * Math.sin(t * 1.4 + b.phase));
       }
     },
     sync: (marks) => {
