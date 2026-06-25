@@ -117,7 +117,15 @@ export default function TraceBox({
             </div>
           )}
           <p className={styles.traceCredit}>
-            firefly guestbook — thanks to <span>@ajangeunajang</span>
+            firefly guestbook — thanks to{' '}
+            <a
+              className={styles.traceCreditLink}
+              href="https://www.ajangeunajang.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              @ajangeunajang ↗
+            </a>
           </p>
         </div>
       )}
