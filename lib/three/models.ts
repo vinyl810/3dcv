@@ -25,6 +25,10 @@ export interface World {
   proxies: THREE.Object3D[];
   /** Add visitor marks (fireflies) not already shown — idempotent by id. */
   syncMarks: (marks: Mark[]) => void;
+  /** Flag which mark ids belong to THIS visitor (adds a "you-are-here" pin). */
+  setMineMarks: (ids: number[]) => void;
+  /** Fire a one-shot locator on the visitor's own fireflies. */
+  pingMine: () => void;
   update: (t: number, dt: number) => void;
   dispose: () => void;
 }
@@ -210,7 +214,15 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
     scene.clear();
   };
 
-  return { interactives, proxies, syncMarks: marks.sync, update, dispose };
+  return {
+    interactives,
+    proxies,
+    syncMarks: marks.sync,
+    setMineMarks: marks.setMine,
+    pingMine: marks.ping,
+    update,
+    dispose,
+  };
 }
 
 // Re-export so engine.ts can import the types from one place.

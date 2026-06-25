@@ -377,6 +377,16 @@ export class DioramaApp {
     this.world?.syncMarks(marks);
   }
 
+  /** Tell the scene which fireflies belong to this visitor (adds a pin). */
+  setMineMarks(ids: number[]) {
+    this.world?.setMineMarks(ids);
+  }
+
+  /** Fire a one-shot locator on the visitor's own fireflies. */
+  pingMine() {
+    this.world?.pingMine();
+  }
+
   private onResize() {
     if (this.disposed) return;
     const w = this.container.clientWidth;

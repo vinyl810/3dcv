@@ -10,6 +10,10 @@ interface Props {
   onReady: () => void;
   selectedId: string | null;
   marks: Mark[];
+  /** Mark ids that belong to THIS visitor (get a "you-are-here" pin). */
+  mineIds: number[];
+  /** Bumped to fire a locator ping on the visitor's own fireflies. */
+  pingNonce: number;
   className?: string;
 }
 
@@ -19,6 +23,8 @@ export default function SceneCanvas({
   onReady,
   selectedId,
   marks,
+  mineIds,
+  pingNonce,
   className,
 }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -28,9 +34,11 @@ export default function SceneCanvas({
   const cb = useRef({ onHover, onSelect, onReady });
   cb.current = { onHover, onSelect, onReady };
 
-  // Latest marks, read at (async) construction time without re-running init.
+  // Latest marks / mine-ids, read at (async) construction time without re-running init.
   const marksRef = useRef(marks);
   marksRef.current = marks;
+  const mineRef = useRef(mineIds);
+  mineRef.current = mineIds;
 
   useEffect(() => {
     let app: DioramaApp | null = null;
@@ -51,6 +59,7 @@ export default function SceneCanvas({
       appRef.current = app;
       // Catch any marks that arrived between render and async init.
       app.syncMarks(marksRef.current);
+      app.setMineMarks(mineRef.current);
     });
 
     return () => {
@@ -69,6 +78,17 @@ export default function SceneCanvas({
   useEffect(() => {
     appRef.current?.syncMarks(marks);
   }, [marks]);
+
+  // Flag which fireflies are "mine" so they get a pin (runs after the marks
+  // effect above, so a freshly-planted mark's beacon already exists).
+  useEffect(() => {
+    appRef.current?.setMineMarks(mineIds);
+  }, [mineIds]);
+
+  // Fire the locator ping whenever the nonce advances (0 = never pinged yet).
+  useEffect(() => {
+    if (pingNonce > 0) appRef.current?.pingMine();
+  }, [pingNonce]);
 
   return <div ref={mountRef} className={className} />;
 }

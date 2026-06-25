@@ -156,12 +156,17 @@ export function makeWater(
   const cyan = color(P.surfCyan);
   const foam = color(P.foam);
 
-  // Precompute a soft foam-ring weight per vertex (Chebyshev distance to the
-  // square island edge) so foam HUGS the shoreline instead of blobbing across.
+  // Precompute two foam weights per vertex (Chebyshev distance to the square
+  // island edge): a soft RING that hugs the shoreline (so foam never blobs
+  // across the open sea), and an EDGE band over the last stretch before the
+  // sea pours off the rim — that's where the calm water meets the waterfalls.
   const ring = new Float32Array(count);
+  const edge = new Float32Array(count);
+  const half = Math.min(w, d) / 2; // outer edge of the plane = the spill lip
   for (let i = 0; i < count; i++) {
     const sq = Math.max(Math.abs(pos.getX(i)), Math.abs(pos.getZ(i)));
     ring[i] = Math.exp(-Math.pow((sq - 9.0) / 0.9, 2));
+    edge[i] = THREE.MathUtils.smoothstep(sq, half - 1.6, half - 0.05);
   }
 
   const update = (t: number) => {
@@ -183,6 +188,12 @@ export function makeWater(
       r += (foam.r - r) * fw;
       g += (foam.g - g) * fw;
       b += (foam.b - b) * fw;
+      // churning WHITE foam where the calm sea spills into the waterfalls
+      const churn = 0.55 + 0.45 * Math.sin(x * 1.9 - z * 1.5 + t * 3.0);
+      const ew = edge[i] * THREE.MathUtils.clamp(churn, 0, 1);
+      r += (foam.r - r) * ew;
+      g += (foam.g - g) * ew;
+      b += (foam.b - b) * ew;
       col.setXYZ(i, r, g, b);
     }
     pos.needsUpdate = true;
@@ -203,6 +214,7 @@ export function buildOcean(): EnvPart {
 
   // Four waterfalls spilling off the diamond edges into mist.
   const falls: { mesh: THREE.Mesh; matMap: THREE.Texture }[] = [];
+  const foamLips: THREE.MeshToonMaterial[] = [];
   const fallMat = () =>
     new THREE.MeshBasicMaterial({
       color: color(P.surfCyan),
@@ -222,6 +234,12 @@ export function buildOcean(): EnvPart {
     if (ex !== 0) f.rotation.y = Math.PI / 2;
     falls.push({ mesh: f, matMap: f.material as unknown as THREE.Texture });
     group.add(f);
+    // a crisp WHITE foam crest right at the lip, where the stream leaves the
+    // sea surface (cloned material so its opacity can churn independently).
+    const lipMat = glass(P.foam, 0.85, 0.5).clone();
+    const lip = box(group, P.foam, 8.2, 0.24, 0.7, ex, -0.32, ez, { mat: lipMat });
+    if (ex !== 0) lip.rotation.y = Math.PI / 2;
+    foamLips.push(lipMat);
     // mist puff at the bottom
     const mist = box(group, P.foam, 7, 1.4, 1.4, ex, -6.2, ez, { opacity: 0.25 });
     if (ex !== 0) mist.rotation.y = Math.PI / 2;
@@ -234,6 +252,7 @@ export function buildOcean(): EnvPart {
       for (let i = 0; i < falls.length; i++) {
         const m = falls[i].mesh.material as THREE.MeshBasicMaterial;
         m.opacity = 0.4 + 0.18 * osc(t, 0.6, i);
+        foamLips[i].opacity = 0.7 + 0.18 * osc(t, 0.5, i * 1.3);
       }
     },
   };
@@ -588,28 +607,86 @@ export function buildIsland(): EnvPart {
 }
 
 /* ==================================================== VISITOR MARKS ===== */
-// Beacons that visitors plant (persisted in Postgres). Each mark = a ground
-// halo + a soft vertical light pillar + a bright bobbing gem in the visitor's
-// chosen color — deliberately DISTINCT from the ambient decor fireflies so a
-// visitor can spot their own trace. Drawn on the default layer (not raycast)
-// so they never interfere with landmark hover/click picking.
+// Fireflies that visitors plant (persisted in Postgres). Each mark = a small
+// dim ground glow + a faint short stem + a little bobbing "mote" in the
+// visitor's chosen color. They're kept SUBTLE on purpose — they should dust the
+// island like real fireflies, not tower over it. The visitor finds their OWN
+// trace not by brightness but by a "you-are-here" pin + an on-demand locator
+// ping (see setMine / ping). Size & float-height are randomised per mark so the
+// swarm never looks uniform. Drawn on the default layer (not raycast) so they
+// never interfere with landmark hover/click picking.
 
 export interface VisitorMarks {
   group: THREE.Group;
   update: (t: number) => void;
   /** Add any marks not already shown (idempotent by id). */
   sync: (marks: Mark[]) => void;
+  /** Flag which mark ids belong to THIS visitor (adds a persistent pin). */
+  setMine: (ids: number[]) => void;
+  /** Briefly fire a locator (expanding ring + tall beam) on the visitor's own fireflies. */
+  ping: () => void;
+}
+
+interface MineDecor {
+  pin: THREE.Mesh;
+  pinMat: THREE.MeshToonMaterial;
+  ring: THREE.Mesh;
+  ringMat: THREE.MeshToonMaterial;
+  loc: THREE.Mesh;
+  locMat: THREE.MeshToonMaterial;
+}
+
+interface Beacon {
+  id: number;
+  g: THREE.Group;
+  gem: THREE.Mesh;
+  gemMat: THREE.MeshToonMaterial;
+  stemMat: THREE.MeshToonMaterial;
+  gemBaseY: number;
+  size: number;
+  bobAmp: number;
+  phase: number;
+  baseGlow: number;
+  hex: number;
+  decor?: MineDecor;
 }
 
 export function buildVisitorMarks(initial: Mark[]): VisitorMarks {
   const group = new THREE.Group();
   const seen = new Set<number>();
-  const beacons: {
-    g: THREE.Group; gem: THREE.Mesh;
-    gemMat: THREE.MeshToonMaterial; beamMat: THREE.MeshToonMaterial;
-    gemBaseY: number; phase: number;
-  }[] = [];
-  const CAP = 200; // hard ceiling on rendered beacons (drop oldest beyond this)
+  const mine = new Set<number>();
+  const beacons: Beacon[] = [];
+  const CAP = 200; // hard ceiling on rendered fireflies (drop oldest beyond this)
+
+  // ping envelope: -1 idle · -2 "arm for next frame" · else absolute start time
+  let pingT0 = -1;
+  const PING_DUR = 2.8;
+  const easeOut = (u: number) => 1 - (1 - u) * (1 - u);
+
+  // The "this one is yours" decoration, built once and lazily (only for marks
+  // that are actually mine). A downward pin floats over the mote at all times;
+  // the ground ring + tall beam stay dark until a locator ping fires.
+  function ensureDecor(b: Beacon): MineDecor {
+    if (b.decor) return b.decor;
+    const pinMat = glow(P.foam, 1.2);
+    const pin = cone(b.g, P.foam, 0.055, 0.13, 0, b.gemBaseY + b.size + 0.16, 0, 6, { mat: pinMat });
+    pin.rotation.x = Math.PI; // apex points DOWN at the mote
+    const ringMat = glass(b.hex, 0.0, 0.8).clone();
+    const ring = cyl(b.g, b.hex, 0.18, 0.18, 0.015, 0, 0.02, 0, 20, { mat: ringMat });
+    const locMat = glass(b.hex, 0.0, 0.7).clone();
+    const loc = box(b.g, b.hex, 0.12, 3.6, 0.12, 0, 1.8, 0, { mat: locMat });
+    pin.visible = ring.visible = loc.visible = false;
+    b.decor = { pin, pinMat, ring, ringMat, loc, locMat };
+    return b.decor;
+  }
+
+  function showMine(b: Beacon, on: boolean) {
+    if (!on && !b.decor) return; // nothing built yet → nothing to hide
+    const d = ensureDecor(b);
+    d.pin.visible = on;
+    d.ring.visible = on; // a faint persistent ring; it brightens during a ping
+    if (!on) d.loc.visible = false;
+  }
 
   function add(m: Mark) {
     if (seen.has(m.id)) return;
@@ -617,26 +694,35 @@ export function buildVisitorMarks(initial: Mark[]): VisitorMarks {
     const hex = MARK_COLORS[m.color] ?? MARK_COLORS[0];
     const i = seen.size;
 
-    // one beacon "stake" planted at the mark's spot on the grass
+    // deterministic per-mark variation (stable across reloads)
+    const r1 = rng(m.id, 11);
+    const r2 = rng(m.id, 23);
+    const r3 = rng(m.id, 37);
+    const size = 0.085 + r1 * 0.055; // 0.085–0.14 mote
+    const gemBaseY = 0.5 + r2 * 0.7; // floats 0.5–1.2 above the grass
+    const bobAmp = 0.05 + r3 * 0.06; // gentle individual drift
+    const baseGlow = 0.7 + r1 * 0.3; // 0.7–1.0 glow
+
     const g = pivot(group, m.x, GY, m.z);
 
-    // bright ground halo + inner core (static emissive — safe to share)
-    cyl(g, hex, 0.2, 0.2, 0.03, 0, 0.02, 0, 16, { emissive: 1.0 });
-    cyl(g, hex, 0.09, 0.09, 0.05, 0, 0.04, 0, 12, { emissive: 1.4 });
+    // a small, dim glow where the firefly is "planted"
+    cyl(g, hex, 0.09, 0.09, 0.02, 0, 0.012, 0, 14, { emissive: 0.45 });
 
-    // TALL vertical light pillar so the beacon clears nearby props + landmarks
-    // and is easy to spot even when marks cluster (translucent; cloned so the
-    // opacity can breathe).
-    const beamMat = glass(hex, 0.42, 0.6).clone();
-    box(g, hex, 0.08, 2.4, 0.08, 0, 1.25, 0, { mat: beamMat });
+    // a faint, short stem of light up to the mote (cloned so it can breathe)
+    const stemMat = glass(hex, 0.1, 0.3).clone();
+    box(g, hex, 0.045, gemBaseY, 0.045, 0, gemBaseY / 2 + 0.01, 0, { mat: stemMat });
 
-    // a bright gem hovering HIGH at the top — bobs, spins, pulses (cloned emissive)
-    const gemMat = glow(hex, 1.6);
-    const gem = voxel(g, hex, 0, 2.5, 0, 0.22, { mat: gemMat });
+    // the firefly mote — a small glowing diamond that bobs & pulses
+    const gemMat = glow(hex, baseGlow);
+    const gem = voxel(g, hex, 0, gemBaseY, 0, size, { mat: gemMat });
     gem.rotation.y = Math.PI / 4; // diamond silhouette
-    gem.userData.mark = { id: m.id, color: m.color, x: m.x, z: m.z };
 
-    beacons.push({ g, gem, gemMat, beamMat, gemBaseY: 2.5, phase: (i * 1.371) % TAU });
+    const b: Beacon = {
+      id: m.id, g, gem, gemMat, stemMat, gemBaseY, size, bobAmp,
+      phase: (i * 1.371) % TAU, baseGlow, hex,
+    };
+    beacons.push(b);
+    if (mine.has(m.id)) showMine(b, true);
 
     if (beacons.length > CAP) {
       const old = beacons.shift();
@@ -649,15 +735,46 @@ export function buildVisitorMarks(initial: Mark[]): VisitorMarks {
   return {
     group,
     update: (t) => {
+      if (pingT0 === -2) pingT0 = t;
+      let pe = 0; // ping envelope, eases 1 → 0 over PING_DUR
+      if (pingT0 >= 0) {
+        const u = (t - pingT0) / PING_DUR;
+        if (u >= 1) pingT0 = -1;
+        else pe = 1 - u;
+      }
       for (const b of beacons) {
-        b.gem.position.y = b.gemBaseY + Math.sin(t * 1.6 + b.phase) * 0.12;
-        b.gem.rotation.y = Math.PI / 4 + t * 0.8;
-        b.gemMat.emissiveIntensity = 1.1 + 0.6 * (0.5 + 0.5 * Math.sin(t * 2.2 + b.phase));
-        b.beamMat.opacity = 0.28 + 0.16 * (0.5 + 0.5 * Math.sin(t * 1.4 + b.phase));
+        const y = b.gemBaseY + Math.sin(t * 1.5 + b.phase) * b.bobAmp;
+        b.gem.position.y = y;
+        b.gem.rotation.y = Math.PI / 4 + t * 0.6;
+        const pulse = 0.5 + 0.5 * Math.sin(t * 2.0 + b.phase);
+        b.gemMat.emissiveIntensity = b.baseGlow * (0.78 + 0.32 * pulse);
+        b.stemMat.opacity = 0.07 + 0.05 * pulse;
+
+        const d = b.decor;
+        if (d && mine.has(b.id)) {
+          // pin bobs over the mote and hops up while a ping is live
+          d.pin.position.y = y + b.size + 0.16 + 0.45 * easeOut(pe);
+          d.pinMat.emissiveIntensity = 1.0 + 0.9 * pe;
+          // ground ring: faint normally, expands & brightens on a ping
+          const rs = 1 + 3.2 * easeOut(pe);
+          d.ring.scale.set(rs, 1, rs);
+          d.ringMat.opacity = 0.18 + 0.55 * pe;
+          // tall locator beam: only while a ping is live
+          d.loc.visible = pe > 0.001;
+          d.locMat.opacity = 0.55 * pe;
+        }
       }
     },
     sync: (marks) => {
       for (const m of marks) add(m);
+    },
+    setMine: (ids) => {
+      mine.clear();
+      for (const id of ids) mine.add(id);
+      for (const b of beacons) showMine(b, mine.has(b.id));
+    },
+    ping: () => {
+      pingT0 = -2; // start (or restart) on the next update frame
     },
   };
 }

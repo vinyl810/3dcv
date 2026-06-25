@@ -9,11 +9,22 @@ interface Props {
   dbEnabled: boolean;
   recent: string[];
   onPlant: (color: number, label: string) => Promise<{ ok: boolean; error?: string }>;
+  /** How many fireflies this browser has planted (0 → hide the locator). */
+  myCount: number;
+  /** Fire the in-scene locator on the visitor's own fireflies. */
+  onFindMine: () => void;
 }
 
 const hex = (i: number) => `#${MARK_COLORS[i].toString(16).padStart(6, '0')}`;
 
-export default function TraceBox({ total, dbEnabled, recent, onPlant }: Props) {
+export default function TraceBox({
+  total,
+  dbEnabled,
+  recent,
+  onPlant,
+  myCount,
+  onFindMine,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [color, setColor] = useState(0);
   const [label, setLabel] = useState('');
@@ -42,7 +53,10 @@ export default function TraceBox({ total, dbEnabled, recent, onPlant }: Props) {
           {done ? (
             <div className={styles.traceDone}>
               <p>✨ You left your mark!</p>
-              <p className={styles.traceHintTxt}>Your firefly is now glowing somewhere on the island.</p>
+              <p className={styles.traceHintTxt}>
+                Your firefly is now glowing on the island — a pin floats above it
+                so you can always find it again.
+              </p>
             </div>
           ) : dbEnabled ? (
             <>
@@ -87,6 +101,12 @@ export default function TraceBox({ total, dbEnabled, recent, onPlant }: Props) {
               <p className={styles.traceHintTxt}>The guestbook is being set up.</p>
             </div>
           )}
+          {myCount > 0 && (
+            <button className={styles.traceFind} onClick={onFindMine} type="button">
+              {done ? '✨ Show me where it landed' : '✨ Find my firefly'}
+              {myCount > 1 ? ` (${myCount})` : ''}
+            </button>
+          )}
           {recent.length > 0 && (
             <div className={styles.traceRecent}>
               {recent.map((r, i) => (
@@ -96,6 +116,9 @@ export default function TraceBox({ total, dbEnabled, recent, onPlant }: Props) {
               ))}
             </div>
           )}
+          <p className={styles.traceCredit}>
+            firefly guestbook — thanks to <span>@ajangeunajang</span>
+          </p>
         </div>
       )}
       <button
