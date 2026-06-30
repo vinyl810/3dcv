@@ -914,7 +914,7 @@ export function buildLights(): THREE.Group {
   sc.updateProjectionMatrix();
   key.shadow.bias = -0.0004;
   key.shadow.normalBias = 0.04;
-  key.shadow.intensity = 0.5; // 은은하게 — half-strength shadows
+  key.shadow.intensity = 0.85; // clearly visible (0.5 read too faint to notice)
   group.add(key);
 
   // Cool sky fill from above grounds the palette.
