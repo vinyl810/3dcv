@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { P, color, mat, emit, glass, box, cyl, cone, sphere, dome, voxel, pivot, osc, TAU } from './kit';
+import { P, color, mat, emit, glass, box, cyl, cone, sphere, dome, voxel, pivot, osc, TAU, GRADIENT } from './kit';
 import { type Mark, MARK_COLORS } from '../marks-types';
 
 export interface EnvPart {
@@ -385,6 +385,44 @@ function lantern(g: THREE.Object3D, x: number, z: number): THREE.MeshToonMateria
   return m;
 }
 
+/**
+ * A flat, subdivided surface tile whose vertices are softly mottled between a
+ * base color and a few close shades. Laid just above a big flat slab (grass /
+ * sand), it gives the surface a dappled, hand-placed pixel-texture feel instead
+ * of one dead-flat color — and the soft blotches survive the pixelation pass as
+ * blocky patches. Deterministic (rng per vertex) and static (no animation).
+ */
+function mottledTop(
+  parent: THREE.Object3D,
+  size: number,
+  y: number,
+  baseHex: number,
+  shades: number[],
+  segs: number,
+  amount: number,
+  seed = 0,
+): void {
+  const geo = new THREE.PlaneGeometry(size, size, segs, segs);
+  geo.rotateX(-Math.PI / 2);
+  const count = geo.attributes.position.count;
+  const colors = new Float32Array(count * 3);
+  const base = color(baseHex);
+  const sc = shades.map((h) => color(h));
+  for (let i = 0; i < count; i++) {
+    const s = sc[Math.floor(rng(i + seed * 911, 71) * sc.length) % sc.length];
+    const k = amount * rng(i + seed * 911, 83); // how far this vertex tints
+    colors[i * 3] = base.r + (s.r - base.r) * k;
+    colors[i * 3 + 1] = base.g + (s.g - base.g) * k;
+    colors[i * 3 + 2] = base.b + (s.b - base.b) * k;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: GRADIENT });
+  (material as THREE.Material as { flatShading?: boolean }).flatShading = true;
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.position.y = y;
+  parent.add(mesh);
+}
+
 /* =========================================================== ISLAND ===== */
 
 export function buildIsland(): EnvPart {
@@ -396,6 +434,11 @@ export function buildIsland(): EnvPart {
   box(group, P.grass, 15.4, 1.0, 15.4, 0, 0.0, 0);
   // moss underside hint
   box(group, P.moss, 15.6, 0.3, 15.6, 0, -0.55, 0);
+
+  // Dappled surface texture: softly mottle the big flat slabs so the grass and
+  // beach read as hand-placed pixel texture instead of one flat fill.
+  mottledTop(group, 15.4, GY + 0.01, P.grass, [0x73a986, 0x4c8161, P.moss], 24, 0.4, 1);
+  mottledTop(group, 17, 0.012, P.sand, [0xe6c89c, 0xc8a276, 0xb98f63], 26, 0.36, 2);
 
   // Rock taper down to a point (sky-island silhouette).
   box(group, P.earth, 14, 1.4, 14, 0, -1.4, 0);
@@ -489,6 +532,30 @@ export function buildIsland(): EnvPart {
     if (blocked(x, z)) continue;
     voxel(group, P.moss, x, 0.7, z, 0.4);
     voxel(group, P.grass, x + 0.25, 0.8, z, 0.3);
+  }
+
+  // Micro grass blades — a sparse grain of tiny tufts that adds close-up
+  // texture to the lawn without crowding the props (deterministic, subtle).
+  for (let i = 0; i < 26; i++) {
+    const x = (rng(i, 31) - 0.5) * 13.4;
+    const z = (rng(i, 32) - 0.5) * 13.4;
+    if (!onGrass(x, z, 0.4) || blocked(x, z, 0.1)) continue;
+    const sh = rng(i, 33) < 0.5 ? P.moss : 0x4c8161;
+    box(group, sh, 0.05, 0.13, 0.05, x, GY + 0.06, z, { rot: [0, 0, (rng(i, 34) - 0.5) * 0.5] });
+    box(group, sh, 0.045, 0.1, 0.045, x + 0.08, GY + 0.05, z + 0.06, { rot: [0, 0, (rng(i, 35) - 0.5) * 0.5] });
+  }
+
+  // Pebbles + dirt flecks bedded into the beach ring (ground grain).
+  for (let i = 0; i < 14; i++) {
+    const edge = Math.floor(rng(i, 41) * 4);
+    const along = (rng(i, 42) * 2 - 1) * 8.0;
+    const d = 7.9 + rng(i, 43) * 0.45;
+    const x = edge === 2 ? d : edge === 3 ? -d : along;
+    const z = edge === 0 ? d : edge === 1 ? -d : along;
+    const s = 0.16 + rng(i, 44) * 0.18;
+    box(group, rng(i, 45) < 0.5 ? P.slate : P.earth, s, s * 0.55, s * 0.9, x, 0.06, z, {
+      rot: [0, rng(i, 46) * TAU, 0],
+    });
   }
 
   // Fireflies — drifting emissive motes that twinkle (dusk life over the grass).
