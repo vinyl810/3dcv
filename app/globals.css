@@ -1,7 +1,17 @@
 /* Pixel-art fonts (graceful fallback to monospace if offline). */
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
-/* Galmuri — Korean pixel font for the Hangul name (matches Press Start 2P). */
-@import url('https://cdn.jsdelivr.net/npm/galmuri/dist/galmuri.css');
+
+/* Galmuri11 — Korean pixel font for the Hangul name, now SELF-HOSTED. The old
+   jsDelivr @import was render-blocking and intermittently failed (the source of
+   the "waiting for cdn.jsdelivr.net" hang). SIL OFL 1.1 © 2019–2025 Lee Minseo
+   (quiple) — license at /fonts/Galmuri-OFL.md. */
+@font-face {
+  font-family: 'Galmuri11';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local('Galmuri11 Regular'), url('/fonts/Galmuri11.woff2') format('woff2');
+}
 
 :root {
   --font-display: 'Press Start 2P', ui-monospace, 'Courier New', monospace;
