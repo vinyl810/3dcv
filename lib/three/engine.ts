@@ -110,7 +110,11 @@ export class DioramaApp {
     renderer.setSize(w, h);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping;
-    renderer.shadowMap.enabled = false;
+    // Shadows ON: the key light casts; opaque structures cast, the ground
+    // receives (flags applied in applyShadowFlags). Soft PCF, then the pixel
+    // pass crunches the result into chunky pixel shadows.
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.style.display = 'block';
     // Stop the browser hijacking touches for scroll / double-tap zoom.
     renderer.domElement.style.touchAction = 'none';
@@ -141,6 +145,7 @@ export class DioramaApp {
 
     // ---- build the world (lights + diorama + interactives + visitor marks) ----
     this.world = buildWorld(this.scene, this.options.initialMarks ?? []);
+    this.applyShadowFlags();
     for (const obj of this.world.interactives) {
       this.hoverState.set(obj.stationId, { obj, amount: 0 });
     }
@@ -385,6 +390,32 @@ export class DioramaApp {
   /** Fire a one-shot locator on the visitor's own fireflies. */
   pingMine() {
     this.world?.pingMine();
+  }
+
+  /**
+   * Decide which meshes participate in shadows. Only OPAQUE, non-emissive toon
+   * surfaces cast + receive (trees, landmarks, character, ground). Everything
+   * translucent or self-lit — water, waterfalls, glass screens/holograms,
+   * fireflies, crystals, lantern orbs, the sky, hit proxies — is excluded so it
+   * never throws a fake opaque blob or darkens a glow.
+   */
+  private applyShadowFlags() {
+    const optedOut = (o: THREE.Object3D): boolean => {
+      for (let p: THREE.Object3D | null = o; p; p = p.parent) {
+        if (p.userData?.noShadow) return true;
+      }
+      return false;
+    };
+    this.scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const m = mesh.material as THREE.MeshToonMaterial | undefined;
+      const toon = !!m && (m as { isMeshToonMaterial?: boolean }).isMeshToonMaterial === true;
+      const emI = (m && m.emissiveIntensity) || 0;
+      const structural = toon && !m!.transparent && emI <= 0.35 && !optedOut(mesh);
+      mesh.castShadow = structural;
+      mesh.receiveShadow = structural;
+    });
   }
 
   private onResize() {

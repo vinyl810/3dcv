@@ -597,6 +597,9 @@ export function buildIsland(): EnvPart {
   const birds: Bird[] = [];
   for (let i = 0; i < 3; i++) {
     const grp = new THREE.Group();
+    // Birds fly high; their cast shadow lands far from them and reads as a
+    // random dark gash on the lawn — opt them out of shadow casting.
+    grp.userData.noShadow = true;
     box(grp, P.slate, 0.2, 0.13, 0.36, 0, 0, 0);
     box(grp, P.dusk, 0.15, 0.1, 0.12, 0, 0.02, 0.24); // head
     const wl = pivot(grp, 0, 0.05, 0);
@@ -897,6 +900,21 @@ export function buildLights(): THREE.Group {
   // (A warm WHITE, not saturated amber — so whites stay white, not yellow.)
   const key = new THREE.DirectionalLight(color(0xf4dcb4), 1.25);
   key.position.set(30, 34, 26);
+  // Cast subtle shadows. Ortho frustum hugs the island; soft + half-strength
+  // (plus the strong dusk ambient) keeps them gentle, not heavy.
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  const sc = key.shadow.camera;
+  sc.left = -13;
+  sc.right = 13;
+  sc.top = 13;
+  sc.bottom = -13;
+  sc.near = 30;
+  sc.far = 80;
+  sc.updateProjectionMatrix();
+  key.shadow.bias = -0.0004;
+  key.shadow.normalBias = 0.04;
+  key.shadow.intensity = 0.5; // 은은하게 — half-strength shadows
   group.add(key);
 
   // Cool sky fill from above grounds the palette.
