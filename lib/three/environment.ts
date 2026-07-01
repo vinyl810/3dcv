@@ -344,13 +344,21 @@ export function buildOcean(): EnvPart {
     mesh: THREE.Mesh; mat: THREE.MeshToonMaterial; base: number; baseY: number;
     sx: number; sy: number; sz: number; phase: number; rate: number; minE: number;
   }[] = [];
-  const fallMat = () =>
-    new THREE.MeshBasicMaterial({
-      color: color(P.oceanTeal), // unified with the sea colour
+  // LIT toon material (like the sea) so the fall brightens/darkens with the
+  // time of day exactly as the water does. Uses the sea's brighter crest colour
+  // (surfCyan) so the vertical, less-lit plane still matches the strongly top-lit
+  // horizontal sea.
+  const fallMat = () => {
+    const m = new THREE.MeshToonMaterial({
+      color: color(P.surfCyan),
+      gradientMap: GRADIENT,
       transparent: true,
-      opacity: 0.68,
+      opacity: 0.88,
       side: THREE.DoubleSide,
     });
+    (m as THREE.Material as { flatShading?: boolean }).flatShading = true;
+    return m;
+  };
   const edges: [number, number, number][] = [
     [0, 0, 11],
     [0, 0, -11],
