@@ -337,11 +337,9 @@ export function buildOcean(): EnvPart {
   const sea = makeWater(22, 22, 36, -0.3);
   group.add(sea.mesh);
 
-  // Four waterfalls spilling off the diamond edges into mist. Each fall's TOP
-  // is tucked just below the sea surface (top at y=-0.42, under the wave troughs
-  // at ~-0.36) so its hard top edge never pokes through the seam — the water
-  // appears to pour straight out from under the foam.
-  const falls: { mesh: THREE.Mesh }[] = [];
+  // Four waterfalls spilling off the middle of each diamond edge into mist. The
+  // fall top sits flush with the sea (-0.3) and shares its colour, so the sea
+  // and the falling water connect seamlessly. Steady opacity (no flicker).
   const foam: {
     mesh: THREE.Mesh; mat: THREE.MeshToonMaterial; base: number; baseY: number;
     sx: number; sy: number; sz: number; phase: number; rate: number; minE: number;
@@ -366,7 +364,6 @@ export function buildOcean(): EnvPart {
     const f = new THREE.Mesh(new THREE.PlaneGeometry(8, 6), fallMat());
     f.position.set(ex, -3.3, ez);
     if (ex !== 0) f.rotation.y = Math.PI / 2;
-    falls.push({ mesh: f });
     group.add(f);
 
     // FOAM BUBBLES — a DENSE scatter of tiny round bubbles along the waterline,
@@ -406,10 +403,6 @@ export function buildOcean(): EnvPart {
     group,
     update: (t) => {
       sea.update(t);
-      for (let i = 0; i < falls.length; i++) {
-        const m = falls[i].mesh.material as THREE.MeshBasicMaterial;
-        m.opacity = 0.4 + 0.18 * osc(t, 0.6, i);
-      }
       // Bubbles: each grows in, holds, then POPS (expands + fades). Gone for the
       // rest of its loop, so at any moment only a few are up → sparse + popping.
       for (const fo of foam) {
