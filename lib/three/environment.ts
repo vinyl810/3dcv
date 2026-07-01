@@ -379,7 +379,7 @@ export function buildOcean(): EnvPart {
     // fades), so bubbles keep appearing and bursting all along the rim.
     const alongX = ex === 0; // ±Z edges run along world X; ±X edges along world Z
     const HALF = 4.4;
-    const N = 60; // very dense
+    const N = 110; // packed dense (same span, more bubbles)
     for (let k = 0; k < N; k++) {
       const r1 = rng(ei * 61 + k, 17);
       const r2 = rng(ei * 61 + k, 29);
