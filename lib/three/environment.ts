@@ -360,19 +360,21 @@ export function buildOcean(): EnvPart {
     [-11, 0, 0],
   ];
   edges.forEach(([ex, , ez], ei) => {
-    const f = new THREE.Mesh(new THREE.PlaneGeometry(8, 6), fallMat());
-    f.position.set(ex, -3.34, ez); // TOP now meets the sea surface (-0.3 ± waves)
+    // A full-edge water curtain (spans the whole sea edge, ±11) whose TOP is
+    // flush with the sea surface (-0.3) — so the sea and the falling water are
+    // one continuous body all the way around, with no gap where it spills.
+    const f = new THREE.Mesh(new THREE.PlaneGeometry(21.8, 6), fallMat());
+    f.position.set(ex, -3.3, ez);
     if (ex !== 0) f.rotation.y = Math.PI / 2;
     falls.push({ mesh: f });
     group.add(f);
 
-    // FOAM BUBBLES — a DENSE scatter of tiny round bubbles at the waterline, in
-    // a good mix of sizes. Each one grows in, holds, then POPS (expands + fades),
-    // so bubbles keep appearing and bursting all along the rim. The waterfall
-    // shares the sea's colour, so the seam reads continuous underneath.
+    // FOAM BUBBLES — a DENSE scatter of tiny round bubbles along the waterline,
+    // in a good mix of sizes. Each one grows in, holds, then POPS (expands +
+    // fades), so bubbles keep appearing and bursting all along the rim.
     const alongX = ex === 0; // ±Z edges run along world X; ±X edges along world Z
-    const HALF = 4.4;
-    const N = 60; // very dense
+    const HALF = 9;
+    const N = 100; // very dense, spanning most of the edge
     for (let k = 0; k < N; k++) {
       const r1 = rng(ei * 61 + k, 17);
       const r2 = rng(ei * 61 + k, 29);
@@ -397,7 +399,7 @@ export function buildOcean(): EnvPart {
 
     // soft mist puff at the base of the fall
     const mist = sphere(group, P.foam, 1, ex, -6.2, ez, 10, { opacity: 0.22 });
-    mist.scale.set(alongX ? 3.6 : 0.7, 0.7, alongX ? 0.7 : 3.6);
+    mist.scale.set(alongX ? 9 : 0.8, 0.7, alongX ? 0.8 : 9);
   });
 
   return {
