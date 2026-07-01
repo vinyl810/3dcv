@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildSky, buildIsland, buildOcean, buildLights, buildVisitorMarks } from './environment';
+import { buildSky, buildIsland, buildOcean, buildLights, buildVisitorMarks, kstHour, todAt } from './environment';
 import { P, color, emit, TAU } from './kit';
 import type { Mark } from '../marks-types';
 import { buildHub } from './landmarks/hub';
@@ -100,11 +100,38 @@ function buildCables(): { group: THREE.Group; update: (t: number) => void } {
   };
 }
 
+/**
+ * Which KST hour to render. Defaults to the real clock in Korea, but a `?h=14`
+ * (or `?h=6.5`) query param forces a specific hour — handy for previewing any
+ * time of day.
+ */
+function currentHour(): number {
+  if (typeof location !== 'undefined') {
+    const raw = new URLSearchParams(location.search).get('h');
+    if (raw !== null) {
+      const h = parseFloat(raw);
+      if (!Number.isNaN(h)) return ((h % 24) + 24) % 24;
+    }
+  }
+  return kstHour();
+}
+
 export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World {
-  scene.add(buildLights());
+  const lights = buildLights();
+  scene.add(lights.group);
 
   const sky = buildSky();
   scene.add(sky.group);
+
+  // Drive sky + lights from the Korean clock (re-applied every frame so the
+  // scene slowly transitions as real time passes). Applied once now so frame 0
+  // is already correct.
+  const applyTime = () => {
+    const s = todAt(currentHour());
+    sky.applyTod(s);
+    lights.applyTod(s);
+  };
+  applyTime();
 
   // Everything that "floats" bobs together so landmarks stay attached.
   const floating = new THREE.Group();
@@ -192,6 +219,7 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
   }
 
   const update = (t: number, dt: number) => {
+    applyTime(); // live KST-driven sky + sun/shadows
     sky.update(t, dt);
     island.update(t, dt);
     ocean.update(t, dt);

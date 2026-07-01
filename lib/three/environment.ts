@@ -7,9 +7,106 @@ export interface EnvPart {
   update: (t: number, dt: number) => void;
 }
 
+/* ==================================================== TIME OF DAY ===== */
+// The scene tracks the real clock in Korea (KST = UTC+9, no DST): the key light
+// orbits (shadows sweep + stretch) and the whole sky/ambient palette shifts
+// through night → dawn → bright noon → golden → dusk. The keyframes below are
+// interpolated continuously and re-applied every frame, so leaving the page open
+// slowly transitions with the actual time.
+
+export interface TodState {
+  skyTop: number; skyMid: number; skyBot: number; skyGlow: number;
+  keyX: number; keyY: number; keyZ: number; keyCol: number; keyI: number;
+  ambCol: number; ambI: number;
+  hemiSky: number; hemiGnd: number; hemiI: number;
+  rimCol: number; rimI: number;
+  shadowI: number; star: number; cloud: number; moon: number;
+}
+interface TodKey extends TodState { h: number }
+
+/** Current time in Korea as a 0–24 float (UTC+9, no DST — viewer TZ-independent). */
+export function kstHour(): number {
+  const d = new Date();
+  return (d.getUTCHours() + d.getUTCMinutes() / 60 + d.getUTCSeconds() / 3600 + 9) % 24;
+}
+
+// h = KST hour. keyX/Y/Z = key-light position (sun/moon direction → shadows).
+const TOD_KEYS: TodKey[] = [
+  { h: 2.0, skyTop: 0x0a1024, skyMid: 0x121a36, skyBot: 0x1e2444, skyGlow: 0x2a2a52,
+    keyX: -40, keyY: 34, keyZ: -34, keyCol: 0xaebfe6, keyI: 0.4,
+    ambCol: 0x1a2038, ambI: 0.55, hemiSky: 0x24304e, hemiGnd: 0x161e2c, hemiI: 0.35,
+    rimCol: 0x4a5578, rimI: 0.45, shadowI: 0.5, star: 1.0, cloud: 0x2a3350, moon: 1.0 },
+  { h: 5.5, skyTop: 0x1c2a52, skyMid: 0x35406a, skyBot: 0x574f74, skyGlow: 0x8a6478,
+    keyX: 52, keyY: 9, keyZ: 12, keyCol: 0x9aa2cc, keyI: 0.55,
+    ambCol: 0x2b3048, ambI: 0.62, hemiSky: 0x3a4668, hemiGnd: 0x2a3440, hemiI: 0.4,
+    rimCol: 0xb87a80, rimI: 0.5, shadowI: 0.6, star: 0.5, cloud: 0x4a4668, moon: 0.5 },
+  { h: 7.0, skyTop: 0x40548c, skyMid: 0x7a6e96, skyBot: 0xd89a92, skyGlow: 0xffb474,
+    keyX: 56, keyY: 12, keyZ: 8, keyCol: 0xffca88, keyI: 1.15,
+    ambCol: 0x3d4258, ambI: 0.72, hemiSky: 0x6a7a9c, hemiGnd: 0x3d5a48, hemiI: 0.45,
+    rimCol: 0xffae76, rimI: 0.6, shadowI: 0.82, star: 0.1, cloud: 0xd9a9a0, moon: 0.08 },
+  { h: 12.0, skyTop: 0x3f82cf, skyMid: 0x69a6db, skyBot: 0xbadcf0, skyGlow: 0xe8f4ff,
+    keyX: 8, keyY: 58, keyZ: 16, keyCol: 0xfff3df, keyI: 1.55,
+    ambCol: 0x93b2d2, ambI: 0.9, hemiSky: 0xa2caf0, hemiGnd: 0x5a9670, hemiI: 0.6,
+    rimCol: 0xbadcf0, rimI: 0.3, shadowI: 0.7, star: 0.0, cloud: 0xdff0ff, moon: 0.0 },
+  { h: 15.5, skyTop: 0x4a6ea8, skyMid: 0x8a86a8, skyBot: 0xd8b0a0, skyGlow: 0xffcf9a,
+    keyX: -20, keyY: 40, keyZ: 6, keyCol: 0xffe6c0, keyI: 1.4,
+    ambCol: 0x6a6a80, ambI: 0.84, hemiSky: 0x8a9ab0, hemiGnd: 0x5a8060, hemiI: 0.55,
+    rimCol: 0xffb488, rimI: 0.5, shadowI: 0.78, star: 0.0, cloud: 0xe8cbb0, moon: 0.0 },
+  { h: 18.5, skyTop: 0x3a3a68, skyMid: 0x86577e, skyBot: 0xe0847a, skyGlow: 0xff965a,
+    keyX: -54, keyY: 12, keyZ: -6, keyCol: 0xffb070, keyI: 1.2,
+    ambCol: 0x4a3a52, ambI: 0.72, hemiSky: 0x7a5a78, hemiGnd: 0x4a5a48, hemiI: 0.45,
+    rimCol: 0xff8a6a, rimI: 0.7, shadowI: 0.85, star: 0.08, cloud: 0xe0907e, moon: 0.06 },
+  { h: 20.5, skyTop: 0x252c4a, skyMid: 0x3d3a68, skyBot: 0x584a70, skyGlow: 0xc97c84,
+    keyX: 30, keyY: 34, keyZ: 26, keyCol: 0xf4dcb4, keyI: 1.25,
+    ambCol: 0x34384f, ambI: 0.85, hemiSky: 0x4a5a78, hemiGnd: 0x356a54, hemiI: 0.45,
+    rimCol: 0xc2727a, rimI: 0.7, shadowI: 0.75, star: 0.55, cloud: 0x3a3358, moon: 0.45 },
+];
+
+const _lc = (a: number, b: number, f: number) => a + (b - a) * f;
+const _ca = new THREE.Color();
+const _cb = new THREE.Color();
+function _lh(a: number, b: number, f: number): number {
+  _ca.setHex(a, THREE.SRGBColorSpace);
+  _cb.setHex(b, THREE.SRGBColorSpace);
+  return _ca.lerp(_cb, f).getHex(THREE.SRGBColorSpace);
+}
+const _todOut: TodState = {
+  skyTop: 0, skyMid: 0, skyBot: 0, skyGlow: 0, keyX: 0, keyY: 0, keyZ: 0, keyCol: 0,
+  keyI: 0, ambCol: 0, ambI: 0, hemiSky: 0, hemiGnd: 0, hemiI: 0, rimCol: 0, rimI: 0,
+  shadowI: 0, star: 0, cloud: 0, moon: 0,
+};
+
+/** Interpolated sky/light state for a KST hour (0–24). Reuses one object. */
+export function todAt(hour: number): TodState {
+  const n = TOD_KEYS.length;
+  let a = TOD_KEYS[n - 1], b = TOD_KEYS[0], f = 0;
+  for (let i = 0; i < n; i++) {
+    const cur = TOD_KEYS[i], nxt = TOD_KEYS[(i + 1) % n];
+    const h0 = cur.h;
+    const h1 = i === n - 1 ? nxt.h + 24 : nxt.h;
+    const hh = i === n - 1 && hour < TOD_KEYS[0].h ? hour + 24 : hour;
+    if (hh >= h0 && hh < h1) { a = cur; b = nxt; f = (hh - h0) / (h1 - h0); break; }
+  }
+  const o = _todOut;
+  o.skyTop = _lh(a.skyTop, b.skyTop, f); o.skyMid = _lh(a.skyMid, b.skyMid, f);
+  o.skyBot = _lh(a.skyBot, b.skyBot, f); o.skyGlow = _lh(a.skyGlow, b.skyGlow, f);
+  o.keyX = _lc(a.keyX, b.keyX, f); o.keyY = _lc(a.keyY, b.keyY, f); o.keyZ = _lc(a.keyZ, b.keyZ, f);
+  o.keyCol = _lh(a.keyCol, b.keyCol, f); o.keyI = _lc(a.keyI, b.keyI, f);
+  o.ambCol = _lh(a.ambCol, b.ambCol, f); o.ambI = _lc(a.ambI, b.ambI, f);
+  o.hemiSky = _lh(a.hemiSky, b.hemiSky, f); o.hemiGnd = _lh(a.hemiGnd, b.hemiGnd, f);
+  o.hemiI = _lc(a.hemiI, b.hemiI, f);
+  o.rimCol = _lh(a.rimCol, b.rimCol, f); o.rimI = _lc(a.rimI, b.rimI, f);
+  o.shadowI = _lc(a.shadowI, b.shadowI, f); o.star = _lc(a.star, b.star, f);
+  o.cloud = _lh(a.cloud, b.cloud, f); o.moon = _lc(a.moon, b.moon, f);
+  return o;
+}
+
+export interface SkyPart extends EnvPart { applyTod: (s: TodState) => void }
+export interface LightsPart { group: THREE.Group; applyTod: (s: TodState) => void }
+
 /* ============================================================= SKY ===== */
 
-export function buildSky(): EnvPart {
+export function buildSky(): SkyPart {
   const group = new THREE.Group();
 
   // Vertical gradient dome (unlit shader — pure backdrop).
@@ -45,26 +142,14 @@ export function buildSky(): EnvPart {
   });
   group.add(new THREE.Mesh(skyGeo, skyMat));
 
-  // Moon-glow disc, back-left, motivates the rim light.
-  const moon = new THREE.Mesh(
-    new THREE.CircleGeometry(14, 24),
-    new THREE.MeshBasicMaterial({
-      color: color(P.horizon),
-      transparent: true,
-      opacity: 0.55,
-    }),
-  );
+  // Moon-glow disc, back-left, motivates the rim light. Fades out by day.
+  const moonMat = new THREE.MeshBasicMaterial({ color: color(P.horizon), transparent: true, opacity: 0.55 });
+  const moon = new THREE.Mesh(new THREE.CircleGeometry(14, 24), moonMat);
   moon.position.set(-70, 34, -60);
   moon.lookAt(0, 10, 0);
   group.add(moon);
-  const moonCore = new THREE.Mesh(
-    new THREE.CircleGeometry(8, 24),
-    new THREE.MeshBasicMaterial({
-      color: color(P.amber),
-      transparent: true,
-      opacity: 0.5,
-    }),
-  );
+  const moonCoreMat = new THREE.MeshBasicMaterial({ color: color(P.amber), transparent: true, opacity: 0.5 });
+  const moonCore = new THREE.Mesh(new THREE.CircleGeometry(8, 24), moonCoreMat);
   moonCore.position.set(-69, 34, -59);
   moonCore.lookAt(0, 10, 0);
   group.add(moonCore);
@@ -95,8 +180,10 @@ export function buildSky(): EnvPart {
   );
   group.add(stars);
 
-  // Drifting clouds — flat slabs.
+  // Drifting clouds — flat slabs. Materials are cloned so they can be re-tinted
+  // per time of day (light in daylight, rose at dusk, blue-grey at night).
   const clouds: THREE.Mesh[] = [];
+  const cloudMats: THREE.MeshToonMaterial[] = [];
   const cloudData = [
     { x: -40, y: 26, z: -30, s: 1.4 },
     { x: 46, y: 32, z: -44, s: 1.0 },
@@ -104,9 +191,13 @@ export function buildSky(): EnvPart {
   ];
   for (const c of cloudData) {
     const m = new THREE.Group();
-    box(m, P.dusk, 10, 2.4, 4, 0, 0, 0);
-    box(m, P.dusk, 6, 2.4, 4, -5, 1.2, 0);
-    box(m, P.horizon, 7, 2, 4, 4, 1, 0);
+    const mA = mat(P.dusk).clone();
+    const mB = mat(P.dusk).clone();
+    const mC = mat(P.horizon).clone();
+    box(m, P.dusk, 10, 2.4, 4, 0, 0, 0, { mat: mA });
+    box(m, P.dusk, 6, 2.4, 4, -5, 1.2, 0, { mat: mB });
+    box(m, P.horizon, 7, 2, 4, 4, 1, 0, { mat: mC });
+    cloudMats.push(mA, mB, mC);
     m.scale.setScalar(c.s);
     m.position.set(c.x, c.y, c.z);
     clouds.push(m as unknown as THREE.Mesh);
@@ -114,16 +205,28 @@ export function buildSky(): EnvPart {
   }
 
   const starMat = stars.material as THREE.PointsMaterial;
+  const su = skyMat.uniforms;
+  let starDay = 1; // 0 by day, 1 at night — set by applyTod
   return {
     group,
     update: (t) => {
-      starMat.opacity = 0.7 + 0.25 * osc(t, 4);
+      starMat.opacity = (0.7 + 0.25 * osc(t, 4)) * starDay;
       for (let i = 0; i < clouds.length; i++) {
         const c = clouds[i];
         c.position.x += 0.012 * (i % 2 === 0 ? 1 : -1);
         if (c.position.x > 80) c.position.x = -80;
         if (c.position.x < -80) c.position.x = 80;
       }
+    },
+    applyTod: (s) => {
+      su.top.value.setHex(s.skyTop, THREE.SRGBColorSpace);
+      su.mid.value.setHex(s.skyMid, THREE.SRGBColorSpace);
+      su.bot.value.setHex(s.skyBot, THREE.SRGBColorSpace);
+      su.glow.value.setHex(s.skyGlow, THREE.SRGBColorSpace);
+      moonMat.opacity = 0.6 * s.moon;
+      moonCoreMat.opacity = 0.5 * s.moon;
+      for (const m of cloudMats) m.color.setHex(s.cloud, THREE.SRGBColorSpace);
+      starDay = s.star;
     },
   };
 }
@@ -889,42 +992,58 @@ export function buildVisitorMarks(initial: Mark[]): VisitorMarks {
 
 /* =========================================================== LIGHTS ===== */
 
-export function buildLights(): THREE.Group {
+export function buildLights(): LightsPart {
   const group = new THREE.Group();
 
-  // Cool dusk ambient — shadow sides read indigo, never black.
+  // Cool ambient — shadow sides read indigo, never black. (color/intensity are
+  // driven by time of day via applyTod; these are just initial values.)
   const ambient = new THREE.AmbientLight(color(0x34384f), 0.85);
   group.add(ambient);
 
-  // Soft warm-white key from the camera side (+x+y+z) lights front faces.
-  // (A warm WHITE, not saturated amber — so whites stay white, not yellow.)
+  // The "sun/moon": a directional key whose POSITION (and thus shadow
+  // direction/length) is set from the KST clock by applyTod. Ortho shadow
+  // frustum is roomy enough for the low-angle sunrise/sunset shadows that
+  // stretch well past the island.
   const key = new THREE.DirectionalLight(color(0xf4dcb4), 1.25);
   key.position.set(30, 34, 26);
-  // Cast subtle shadows. Ortho frustum hugs the island; soft + half-strength
-  // (plus the strong dusk ambient) keeps them gentle, not heavy.
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
   const sc = key.shadow.camera;
-  sc.left = -13;
-  sc.right = 13;
-  sc.top = 13;
-  sc.bottom = -13;
-  sc.near = 30;
-  sc.far = 80;
+  sc.left = -18;
+  sc.right = 18;
+  sc.top = 18;
+  sc.bottom = -18;
+  sc.near = 20;
+  sc.far = 110;
   sc.updateProjectionMatrix();
   key.shadow.bias = -0.0004;
   key.shadow.normalBias = 0.04;
-  key.shadow.intensity = 0.75; // visible against the strong dusk ambient
+  key.shadow.intensity = 0.75;
   group.add(key);
 
   // Cool sky fill from above grounds the palette.
   const hemi = new THREE.HemisphereLight(color(0x4a5a78), color(P.moss), 0.45);
   group.add(hemi);
 
-  // Horizon-rose back rim for edge separation against the dusk sky.
+  // Back rim for edge separation against the sky.
   const rim = new THREE.DirectionalLight(color(P.horizon), 0.7);
   rim.position.set(-26, 12, -30);
   group.add(rim);
 
-  return group;
+  return {
+    group,
+    applyTod: (s) => {
+      ambient.color.setHex(s.ambCol, THREE.SRGBColorSpace);
+      ambient.intensity = s.ambI;
+      key.position.set(s.keyX, s.keyY, s.keyZ);
+      key.color.setHex(s.keyCol, THREE.SRGBColorSpace);
+      key.intensity = s.keyI;
+      key.shadow.intensity = s.shadowI;
+      hemi.color.setHex(s.hemiSky, THREE.SRGBColorSpace);
+      hemi.groundColor.setHex(s.hemiGnd, THREE.SRGBColorSpace);
+      hemi.intensity = s.hemiI;
+      rim.color.setHex(s.rimCol, THREE.SRGBColorSpace);
+      rim.intensity = s.rimI;
+    },
+  };
 }

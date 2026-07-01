@@ -23,7 +23,9 @@
   left: calc(24px + env(safe-area-inset-left));
   pointer-events: auto;
   max-width: min(46vw, 440px);
-  text-shadow: 2px 2px 0 var(--shadow);
+  /* pixel drop + soft dark halo — keeps the cream text legible even over the
+     bright noon / sunset skies of the day-night cycle. */
+  text-shadow: 2px 2px 0 var(--shadow), 0 0 8px rgba(8, 10, 20, 0.65);
 }
 .identity h1 {
   font-family: var(--font-display);
