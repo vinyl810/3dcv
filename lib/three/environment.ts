@@ -371,13 +371,13 @@ export function buildOcean(): EnvPart {
     // so bubbles keep appearing and bursting all along the rim. The waterfall
     // shares the sea's colour, so the seam reads continuous underneath.
     const alongX = ex === 0; // ±Z edges run along world X; ±X edges along world Z
-    const HALF = 4.3;
-    const N = 32; // dense
+    const HALF = 4.4;
+    const N = 60; // very dense
     for (let k = 0; k < N; k++) {
       const r1 = rng(ei * 61 + k, 17);
       const r2 = rng(ei * 61 + k, 29);
       const r3 = rng(ei * 61 + k, 41);
-      const a = (((k + 0.5) / N) * 2 - 1) * HALF + (r1 - 0.5) * 0.42; // along the edge
+      const a = (((k + 0.5) / N) * 2 - 1) * HALF + (r1 - 0.5) * 0.34; // along the edge
       const jit = (r3 - 0.5) * 0.5; // wobble across the rim
       const rad = 0.035 + r1 * r1 * 0.095; // tiny + varied (≤ half of before)
       const px = ex + (alongX ? a : jit);
@@ -413,9 +413,9 @@ export function buildOcean(): EnvPart {
       for (const fo of foam) {
         const cyc = (t * fo.rate + fo.phase) % 1;
         let e = 0, op = 0;
-        if (cyc < 0.12) { const g = cyc / 0.12; e = g; op = g; } // grow in
-        else if (cyc < 0.4) { e = 1; op = 1; } // hold
-        else if (cyc < 0.48) { const p = (cyc - 0.4) / 0.08; e = 1 + p * 0.6; op = 1 - p; } // POP
+        if (cyc < 0.1) { const g = cyc / 0.1; e = g; op = g; } // grow in
+        else if (cyc < 0.68) { e = 1; op = 1; } // hold (longer → more up at once)
+        else if (cyc < 0.76) { const p = (cyc - 0.68) / 0.08; e = 1 + p * 0.6; op = 1 - p; } // POP
         fo.mesh.visible = e > 0.001;
         fo.mesh.scale.set(fo.sx * e, fo.sy * e, fo.sz * e);
         fo.mesh.position.y = fo.baseY + Math.sin(t * 2.0 + fo.phase) * 0.02;
