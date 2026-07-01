@@ -125,19 +125,19 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
 
   const nightLamp = buildNightLamp();
 
-  // The island's lantern point-lights (populated after buildIsland below), gated
-  // to switch on only at night along with the street lamp.
-  let lanternLights: THREE.PointLight[] = [];
+  // Night-gated point lights (lanterns, deck lamp, …). Populated below; each
+  // carries userData.nightBase (its on-intensity). All switch on only at night.
+  const nightLights: THREE.PointLight[] = [];
 
-  // Drive sky + lights + the night lamp + lanterns from the Korean clock
-  // (re-applied every frame so the scene slowly transitions as real time passes).
-  // Applied once now so frame 0 is already correct.
+  // Drive sky + lights + the night lamp + night point-lights from the Korean
+  // clock (re-applied every frame so the scene slowly transitions with real
+  // time). Applied once now so frame 0 is already correct.
   const applyTime = () => {
     const s = todAt(currentHour());
     sky.applyTod(s);
     lights.applyTod(s);
     nightLamp.applyTod(s);
-    for (const L of lanternLights) L.intensity = 2.6 * s.star; // on at night only
+    for (const L of nightLights) L.intensity = ((L.userData.nightBase as number) ?? 2.6) * s.star;
   };
   applyTime();
 
@@ -146,7 +146,7 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
   scene.add(floating);
 
   const island = buildIsland();
-  lanternLights = island.nightLights;
+  nightLights.push(...island.nightLights);
   floating.add(island.group);
   floating.add(nightLamp.group); // lamp bobs with the island
   const ocean = buildOcean();
@@ -169,6 +169,7 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
 
   for (const L of LANDMARKS) {
     const built = L.build();
+    if (built.nightLight) nightLights.push(built.nightLight); // e.g. the hub deck lamp
     const sc = L.scale * PROP_SCALE; // final world scale for this landmark
 
     // Measure the model's TIGHT local footprint with its facing rotation

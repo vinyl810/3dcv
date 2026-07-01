@@ -165,6 +165,11 @@ export function buildHub(): BuiltModel {
   });
   bulb.material = (bulb.material as THREE.MeshToonMaterial).clone();
   const bulbMat = bulb.material as THREE.MeshToonMaterial;
+  // real warm light source; off by day, gated on at night in models.ts
+  const deckLight = new THREE.PointLight(new THREE.Color().setHex(0xffca7a, THREE.SRGBColorSpace), 0, 4.5, 1.8);
+  deckLight.position.set(lampX, DECK + 0.9, lampZ - 0.3);
+  deckLight.userData.nightBase = 2.0;
+  group.add(deckLight);
 
   group.rotation.y = Math.PI / 4; // face the camera corner
 
@@ -178,6 +183,7 @@ export function buildHub(): BuiltModel {
 
   return {
     group,
+    nightLight: deckLight,
     update(t, hover, selected) {
       const sel = selClock(t, selected); // -1 idle; else seconds since the tap
       // one-shot envelopes (see kit recipes)

@@ -522,6 +522,7 @@ function lantern(
     // (the `star` factor) in models.ts so the lantern actually lights the grass.
     light = new THREE.PointLight(color(0xffca7a), 0, 8, 1.7);
     light.position.set(x, GY + 0.85, z);
+    light.userData.nightBase = 2.6;
     g.add(light);
   }
   return { mat: m, light };

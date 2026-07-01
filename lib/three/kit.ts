@@ -289,4 +289,6 @@ export interface BuiltModel {
   group: THREE.Group;
   /** idle animation; t = elapsed seconds, hover = 0..1, selected = bool */
   update?: (t: number, hover: number, selected: boolean) => void;
+  /** Optional point light that switches ON at night (intensity gated in models.ts). */
+  nightLight?: THREE.PointLight;
 }
