@@ -32,14 +32,16 @@ export function kstHour(): number {
 
 // h = KST hour. keyX/Y/Z = key-light position (sun/moon direction → shadows).
 const TOD_KEYS: TodKey[] = [
+  // NIGHT: sky stays deep + dark (mood), but the moonlight/ambient are lifted
+  // and kept cool so the props read clearly instead of sinking into black.
   { h: 2.0, skyTop: 0x0a1024, skyMid: 0x121a36, skyBot: 0x1e2444, skyGlow: 0x2a2a52,
-    keyX: -40, keyY: 34, keyZ: -34, keyCol: 0xaebfe6, keyI: 0.4,
-    ambCol: 0x1a2038, ambI: 0.55, hemiSky: 0x24304e, hemiGnd: 0x161e2c, hemiI: 0.35,
-    rimCol: 0x4a5578, rimI: 0.45, shadowI: 0.5, star: 1.0, cloud: 0x2a3350, moon: 1.0 },
+    keyX: -40, keyY: 34, keyZ: -34, keyCol: 0xc2d0ee, keyI: 0.78,
+    ambCol: 0x2c3456, ambI: 0.9, hemiSky: 0x3c4c74, hemiGnd: 0x26324c, hemiI: 0.6,
+    rimCol: 0x6c7cac, rimI: 0.6, shadowI: 0.45, star: 1.0, cloud: 0x2a3350, moon: 1.0 },
   { h: 5.5, skyTop: 0x1c2a52, skyMid: 0x35406a, skyBot: 0x574f74, skyGlow: 0x8a6478,
-    keyX: 52, keyY: 9, keyZ: 12, keyCol: 0x9aa2cc, keyI: 0.55,
-    ambCol: 0x2b3048, ambI: 0.62, hemiSky: 0x3a4668, hemiGnd: 0x2a3440, hemiI: 0.4,
-    rimCol: 0xb87a80, rimI: 0.5, shadowI: 0.6, star: 0.5, cloud: 0x4a4668, moon: 0.5 },
+    keyX: 52, keyY: 9, keyZ: 12, keyCol: 0xb2bae0, keyI: 0.72,
+    ambCol: 0x343c5e, ambI: 0.84, hemiSky: 0x44527a, hemiGnd: 0x2e3a4e, hemiI: 0.54,
+    rimCol: 0xc08a92, rimI: 0.56, shadowI: 0.55, star: 0.5, cloud: 0x4a4668, moon: 0.5 },
   { h: 7.0, skyTop: 0x40548c, skyMid: 0x7a6e96, skyBot: 0xd89a92, skyGlow: 0xffb474,
     keyX: 56, keyY: 12, keyZ: 8, keyCol: 0xffca88, keyI: 1.15,
     ambCol: 0x3d4258, ambI: 0.72, hemiSky: 0x6a7a9c, hemiGnd: 0x3d5a48, hemiI: 0.45,
@@ -142,17 +144,61 @@ export function buildSky(): SkyPart {
   });
   group.add(new THREE.Mesh(skyGeo, skyMat));
 
-  // Moon-glow disc, back-left, motivates the rim light. Fades out by day.
-  const moonMat = new THREE.MeshBasicMaterial({ color: color(P.horizon), transparent: true, opacity: 0.55 });
-  const moon = new THREE.Mesh(new THREE.CircleGeometry(14, 24), moonMat);
-  moon.position.set(-70, 34, -60);
-  moon.lookAt(0, 10, 0);
+  // ---- celestial bodies. This ortho camera is zoomed in tight, so the sky
+  // visible in-frame maps to world positions that are up-and-BACK (and low y);
+  // the far/high sky projects off the top. Positions below were unprojected from
+  // on-screen upper-sky points; radii are sized to the ~8.5-unit frustum
+  // half-height. All fade in at night (star/moon factors in applyTod).
+  const celestials: { mat: THREE.MeshBasicMaterial; base: number }[] = [];
+  const disc = (r: number, hex: number, x: number, y: number, z: number, base: number) => {
+    const m = new THREE.MeshBasicMaterial({ color: color(hex), transparent: true, opacity: 0, depthWrite: false });
+    const mesh = new THREE.Mesh(new THREE.CircleGeometry(r, 24), m);
+    mesh.position.set(x, y, z);
+    mesh.lookAt(34, 30, 34); // face the camera
+    group.add(mesh);
+    celestials.push({ mat: m, base });
+    return mesh;
+  };
+
+  // The moon — wide pale halo + bright core (opacity via the `moon` factor).
+  disc(2.6, 0x8fa0c4, -46.4, -26.5, -35.8, 0.3); // halo, fades with star
+  const moonMat = new THREE.MeshBasicMaterial({ color: color(0xdfe6f2), transparent: true, opacity: 0, depthWrite: false });
+  const moon = new THREE.Mesh(new THREE.CircleGeometry(1.25, 28), moonMat);
+  moon.position.set(-46.4, -26.5, -35.6);
+  moon.lookAt(34, 30, 34);
   group.add(moon);
-  const moonCoreMat = new THREE.MeshBasicMaterial({ color: color(P.amber), transparent: true, opacity: 0.5 });
-  const moonCore = new THREE.Mesh(new THREE.CircleGeometry(8, 24), moonCoreMat);
-  moonCore.position.set(-69, 34, -59);
-  moonCore.lookAt(0, 10, 0);
+  const moonCoreMat = new THREE.MeshBasicMaterial({ color: color(0xffffff), transparent: true, opacity: 0, depthWrite: false });
+  const moonCore = new THREE.Mesh(new THREE.CircleGeometry(0.65, 28), moonCoreMat);
+  moonCore.position.set(-46.4, -26.5, -35.4);
+  moonCore.lookAt(34, 30, 34);
   group.add(moonCore);
+
+  // Planets (faint halo + bright core) + a couple of faint nebula discs.
+  disc(0.95, P.gold, -35.8, -25.5, -47, 0.18);
+  disc(0.5, P.gold, -35.8, -25.5, -46.8, 0.78);
+  disc(0.75, P.signalRed, -32.2, -27.9, -48.6, 0.16);
+  disc(0.4, P.signalRed, -32.2, -27.9, -48.4, 0.68);
+  disc(0.6, P.surfCyan, -48.5, -27.6, -32.6, 0.14);
+  disc(0.3, P.surfCyan, -48.5, -27.6, -32.4, 0.6);
+  disc(5.2, P.synapse, -41.5, -24.8, -41.9, 0.08); // nebula haze
+  disc(4.2, P.magenta, -39.3, -25.4, -43.6, 0.07); // nebula haze
+
+  // Shooting stars — a bright dot that zips across the sky once per period (night).
+  const shooters: {
+    mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; period: number; offset: number;
+    x0: number; y0: number; z0: number; dx: number; dy: number; dz: number;
+  }[] = [];
+  for (let i = 0; i < 2; i++) {
+    const m = new THREE.MeshBasicMaterial({ color: color(P.foam), transparent: true, opacity: 0, depthWrite: false });
+    const mesh = new THREE.Mesh(new THREE.CircleGeometry(0.32, 12), m);
+    mesh.lookAt(34, 30, 34);
+    group.add(mesh);
+    shooters.push({
+      mesh, mat: m, period: 8 + i * 5, offset: i * 4,
+      x0: -35.1 + i * 2, y0: -24.6 - i * 1.5, z0: -48.5 - i * 2,
+      dx: -5.8, dy: -2.7, dz: 8.0,
+    });
+  }
 
   // Stars — static pixel points in the upper sky.
   const starCount = 220;
@@ -217,14 +263,26 @@ export function buildSky(): SkyPart {
         if (c.position.x > 80) c.position.x = -80;
         if (c.position.x < -80) c.position.x = 80;
       }
+      // shooting stars: a brief streak once per period, night only
+      for (const sh of shooters) {
+        const tt = ((t + sh.offset) % sh.period) / sh.period;
+        if (tt < 0.09) {
+          const k = tt / 0.09;
+          sh.mesh.position.set(sh.x0 + sh.dx * k, sh.y0 + sh.dy * k, sh.z0 + sh.dz * k);
+          sh.mat.opacity = Math.sin(k * Math.PI) * 0.9 * starDay;
+        } else {
+          sh.mat.opacity = 0;
+        }
+      }
     },
     applyTod: (s) => {
       su.top.value.setHex(s.skyTop, THREE.SRGBColorSpace);
       su.mid.value.setHex(s.skyMid, THREE.SRGBColorSpace);
       su.bot.value.setHex(s.skyBot, THREE.SRGBColorSpace);
       su.glow.value.setHex(s.skyGlow, THREE.SRGBColorSpace);
-      moonMat.opacity = 0.6 * s.moon;
-      moonCoreMat.opacity = 0.5 * s.moon;
+      moonMat.opacity = 0.9 * s.moon;
+      moonCoreMat.opacity = 0.95 * s.moon;
+      for (const c of celestials) c.mat.opacity = c.base * s.star;
       for (const m of cloudMats) m.color.setHex(s.cloud, THREE.SRGBColorSpace);
       starDay = s.star;
     },
@@ -327,7 +385,7 @@ export function buildOcean(): EnvPart {
   const falls: { mesh: THREE.Mesh }[] = [];
   const foam: {
     mesh: THREE.Mesh; mat: THREE.MeshToonMaterial; base: number; baseY: number;
-    sx: number; sy: number; sz: number; phase: number; rate: number; chunk: boolean;
+    sx: number; sy: number; sz: number; phase: number; rate: number; minE: number;
   }[] = [];
   const fallMat = () =>
     new THREE.MeshBasicMaterial({
@@ -344,50 +402,42 @@ export function buildOcean(): EnvPart {
   ];
   edges.forEach(([ex, , ez], ei) => {
     const f = new THREE.Mesh(new THREE.PlaneGeometry(8, 6), fallMat());
-    f.position.set(ex, -3.42, ez); // top now at y=-0.42, hidden under the foam
+    f.position.set(ex, -3.34, ez); // TOP now meets the sea surface (-0.3 ± waves)
     if (ex !== 0) f.rotation.y = Math.PI / 2;
     falls.push({ mesh: f });
     group.add(f);
 
-    // FOAM CREST — an irregular row of little froth chunks (varied size, height,
-    // jitter and opacity) sitting over a thin continuous base, hiding the
-    // sea→waterfall seam. The broken silhouette reads as churn, not a white bar.
+    // FOAM CREST — a dense row of soft, flattened foam blobs (rounded spheres,
+    // not cubes) right at the waterline where the sea spills off. Each blob
+    // swells and settles on its own loop, so the foam softly forms and dissolves
+    // and the sea→waterfall seam always stays covered.
     const alongX = ex === 0; // ±Z edges run along world X; ±X edges along world Z
-    const HALF = 4.0;
-    // a thin continuous base so the seam stays covered in the gaps between chunks
-    const baseMat = glass(P.foam, 0.6, 0.1).clone();
-    const baseMesh = box(
-      group, P.foam,
-      alongX ? 8.0 : 0.55, 0.3, alongX ? 0.55 : 8.0,
-      ex, -0.4, ez,
-      { mat: baseMat },
-    );
-    foam.push({ mesh: baseMesh, mat: baseMat, base: 0.6, baseY: -0.4, sx: 0, sy: 0, sz: 0, phase: ei * 0.9, rate: 0, chunk: false });
-    // frothy bumps on top — deterministic per (edge, k) so they stay put
-    const N = 15;
+    const HALF = 4.3;
+    const N = 26;
     for (let k = 0; k < N; k++) {
-      const r1 = rng(ei * 53 + k, 17);
-      const r2 = rng(ei * 53 + k, 29);
-      const r3 = rng(ei * 53 + k, 41);
-      const a = (((k + 0.5) / N) * 2 - 1) * HALF + (r1 - 0.5) * 0.3; // along the edge
-      const jit = (r3 - 0.5) * 0.55; // wobble across the rim
-      const s = 0.3 + r1 * 0.5; // chunk size
-      const h = 0.18 + r2 * 0.3; // chunk height
+      const r1 = rng(ei * 61 + k, 17);
+      const r2 = rng(ei * 61 + k, 29);
+      const r3 = rng(ei * 61 + k, 41);
+      const a = (((k + 0.5) / N) * 2 - 1) * HALF + (r1 - 0.5) * 0.22; // along the edge
+      const jit = (r3 - 0.5) * 0.5; // wobble across the rim
+      const rad = 0.16 + r1 * 0.2; // blob radius
       const px = ex + (alongX ? a : jit);
       const pz = ez + (alongX ? jit : a);
-      const py = -0.3 + h * 0.5 - 0.04 + (r2 - 0.5) * 0.06; // bumpy top, sat in the water
-      const op = 0.5 + r1 * 0.45;
-      const mat = glass(P.foam, op, 0.08 + r2 * 0.12).clone();
-      const cm = box(group, P.foam, s, h, s, px, py, pz, { mat });
+      const py = -0.3 + (r2 - 0.5) * 0.05; // sit right on the waterline
+      const op = 0.42 + r1 * 0.34;
+      const mat = glass(P.foam, op, 0.05 + r2 * 0.09).clone();
+      const blob = sphere(group, P.foam, rad, px, py, pz, 10, { mat });
+      blob.scale.set(1, 0.55, 1); // flatten → foam resting on the surface
       foam.push({
-        mesh: cm, mat, base: op, baseY: py, sx: s, sy: h, sz: s,
-        phase: ei * 1.7 + k * 0.6 + r1 * TAU, rate: 0.28 + r2 * 0.4, chunk: true,
+        mesh: blob, mat, base: op, baseY: py, sx: 1, sy: 0.55, sz: 1,
+        phase: ei * 1.7 + k * 0.5 + r1 * TAU, rate: 0.22 + r2 * 0.34,
+        minE: 0.34 + r1 * 0.16,
       });
     }
 
-    // mist puff at the bottom
-    const mist = box(group, P.foam, 7, 1.4, 1.4, ex, -6.2, ez, { opacity: 0.25 });
-    if (ex !== 0) mist.rotation.y = Math.PI / 2;
+    // soft mist puff at the base of the fall
+    const mist = sphere(group, P.foam, 1, ex, -6.2, ez, 10, { opacity: 0.22 });
+    mist.scale.set(alongX ? 3.6 : 0.7, 0.7, alongX ? 0.7 : 3.6);
   });
 
   return {
@@ -398,22 +448,17 @@ export function buildOcean(): EnvPart {
         const m = falls[i].mesh.material as THREE.MeshBasicMaterial;
         m.opacity = 0.4 + 0.18 * osc(t, 0.6, i);
       }
-      // Real churning foam: each froth chunk cycles small→full→gone on its own
-      // offset loop (plus a bob), so the crest continuously bubbles up and
-      // dissolves instead of sitting there like a frozen block of ice.
+      // Soft churning foam: each blob swells and settles on its own loop (with a
+      // gentle bob), so the crest keeps softly forming and dissolving. minE keeps
+      // every blob partly present so the seam is always covered.
       for (const fo of foam) {
-        if (fo.chunk) {
-          const cyc = (t * fo.rate + fo.phase) % 1; // 0..1 birth→death loop
-          const env = Math.sin(cyc * Math.PI); // 0→1→0
-          const e = 0.14 + 0.86 * env; // scale envelope (never fully vanishes)
-          fo.mesh.scale.set(fo.sx * e, fo.sy * e, fo.sz * e);
-          fo.mesh.position.y =
-            fo.baseY + Math.sin(t * 2.2 + fo.phase) * 0.05 + (env - 0.5) * 0.06;
-          fo.mat.opacity = fo.base * (0.2 + 0.8 * env);
-        } else {
-          // continuous base strip: gentle shimmer only (keeps the seam covered)
-          fo.mat.opacity = fo.base * (0.72 + 0.22 * Math.sin(t * 1.8 + fo.phase));
-        }
+        const cyc = (t * fo.rate + fo.phase) % 1; // 0..1 birth→settle loop
+        const env = Math.sin(cyc * Math.PI); // 0→1→0
+        const e = fo.minE + (1 - fo.minE) * env; // minE..1 (multiplies the baked radius)
+        fo.mesh.scale.set(fo.sx * e, fo.sy * e, fo.sz * e);
+        fo.mesh.position.y =
+          fo.baseY + Math.sin(t * 2.0 + fo.phase) * 0.035 + (env - 0.5) * 0.035;
+        fo.mat.opacity = fo.base * (0.35 + 0.65 * env);
       }
     },
   };
