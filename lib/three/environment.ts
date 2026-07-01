@@ -366,20 +366,20 @@ export function buildOcean(): EnvPart {
     falls.push({ mesh: f });
     group.add(f);
 
-    // FOAM BUBBLES — a SPARSE scatter of little round bubbles at the waterline.
-    // Each one grows in, holds, then POPS (expands + fades out), so bubbles keep
-    // appearing and bursting here and there. The waterfall now shares the sea's
-    // colour, so the seam reads continuous and the foam can be sparse/decorative.
+    // FOAM BUBBLES — a DENSE scatter of tiny round bubbles at the waterline, in
+    // a good mix of sizes. Each one grows in, holds, then POPS (expands + fades),
+    // so bubbles keep appearing and bursting all along the rim. The waterfall
+    // shares the sea's colour, so the seam reads continuous underneath.
     const alongX = ex === 0; // ±Z edges run along world X; ±X edges along world Z
     const HALF = 4.3;
-    const N = 11; // sparse
+    const N = 32; // dense
     for (let k = 0; k < N; k++) {
       const r1 = rng(ei * 61 + k, 17);
       const r2 = rng(ei * 61 + k, 29);
       const r3 = rng(ei * 61 + k, 41);
-      const a = (((k + 0.5) / N) * 2 - 1) * HALF + (r1 - 0.5) * 0.55; // along the edge
+      const a = (((k + 0.5) / N) * 2 - 1) * HALF + (r1 - 0.5) * 0.42; // along the edge
       const jit = (r3 - 0.5) * 0.5; // wobble across the rim
-      const rad = 0.12 + r1 * 0.14; // small round bubble
+      const rad = 0.035 + r1 * r1 * 0.095; // tiny + varied (≤ half of before)
       const px = ex + (alongX ? a : jit);
       const pz = ez + (alongX ? jit : a);
       const py = -0.28 + (r2 - 0.5) * 0.05;
