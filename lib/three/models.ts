@@ -125,14 +125,19 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
 
   const nightLamp = buildNightLamp();
 
-  // Drive sky + lights + the night lamp from the Korean clock (re-applied every
-  // frame so the scene slowly transitions as real time passes). Applied once now
-  // so frame 0 is already correct.
+  // The island's lantern point-lights (populated after buildIsland below), gated
+  // to switch on only at night along with the street lamp.
+  let lanternLights: THREE.PointLight[] = [];
+
+  // Drive sky + lights + the night lamp + lanterns from the Korean clock
+  // (re-applied every frame so the scene slowly transitions as real time passes).
+  // Applied once now so frame 0 is already correct.
   const applyTime = () => {
     const s = todAt(currentHour());
     sky.applyTod(s);
     lights.applyTod(s);
     nightLamp.applyTod(s);
+    for (const L of lanternLights) L.intensity = 2.6 * s.star; // on at night only
   };
   applyTime();
 
@@ -141,6 +146,7 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
   scene.add(floating);
 
   const island = buildIsland();
+  lanternLights = island.nightLights;
   floating.add(island.group);
   floating.add(nightLamp.group); // lamp bobs with the island
   const ocean = buildOcean();

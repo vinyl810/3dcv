@@ -508,13 +508,23 @@ function crystalCluster(g: THREE.Object3D, x: number, z: number, hex: number): T
 }
 
 /** Dusk lantern (slim post + glowing orb); returns its emissive mat for a flicker. */
-function lantern(g: THREE.Object3D, x: number, z: number): THREE.MeshToonMaterial {
+function lantern(
+  g: THREE.Object3D, x: number, z: number, withLight = false,
+): { mat: THREE.MeshToonMaterial; light: THREE.PointLight | null } {
   const m = glow(P.amber, 1.1);
   box(g, P.slate, 0.1, 0.95, 0.1, x, GY + 0.47, z);
   box(g, P.slate, 0.26, 0.08, 0.26, x, GY + 0.98, z);
   voxel(g, P.amber, x, GY + 0.8, z, 0.2, { mat: m });
   box(g, P.slate, 0.05, 0.16, 0.05, x, GY + 1.06, z);
-  return m;
+  let light: THREE.PointLight | null = null;
+  if (withLight) {
+    // a real warm light source; off by day, its intensity is gated by night
+    // (the `star` factor) in models.ts so the lantern actually lights the grass.
+    light = new THREE.PointLight(color(0xffca7a), 0, 8, 1.7);
+    light.position.set(x, GY + 0.85, z);
+    g.add(light);
+  }
+  return { mat: m, light };
 }
 
 /**
@@ -557,7 +567,7 @@ function mottledTop(
 
 /* =========================================================== ISLAND ===== */
 
-export function buildIsland(): EnvPart {
+export function buildIsland(): EnvPart & { nightLights: THREE.PointLight[] } {
   const group = new THREE.Group();
 
   // Beach rim (sand peeking out under the grass).
@@ -619,9 +629,12 @@ export function buildIsland(): EnvPart {
   const lanternSpots: [number, number][] = [
     [6.4, 6.4], [3.2, 5.6], [5.6, 3.2], [-3.4, -1.6], [1.6, 2.2],
   ];
+  const lanternLights: THREE.PointLight[] = [];
   lanternSpots.forEach(([x, z], i) => {
     if (blocked(x, z, 0.2) || !onGrass(x, z, 0.6)) return;
-    lanternMats.push({ mat: lantern(group, x, z), phase: i * 0.37 });
+    const l = lantern(group, x, z, lanternLights.length < 3); // cap real lights to 3
+    lanternMats.push({ mat: l.mat, phase: i * 0.37 });
+    if (l.light) lanternLights.push(l.light);
     blockers.push([x, z, 0.6]);
   });
 
@@ -781,6 +794,7 @@ export function buildIsland(): EnvPart {
 
   return {
     group,
+    nightLights: lanternLights,
     update: (t) => {
       for (const m of chunks) {
         const c = m.userData.orbit;
