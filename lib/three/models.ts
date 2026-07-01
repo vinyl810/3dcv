@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildSky, buildIsland, buildOcean, buildLights, buildVisitorMarks, kstHour, todAt } from './environment';
+import { buildSky, buildIsland, buildOcean, buildLights, buildVisitorMarks, buildNightLamp, kstHour, todAt } from './environment';
 import { P, color, emit, TAU } from './kit';
 import type { Mark } from '../marks-types';
 import { buildHub } from './landmarks/hub';
@@ -123,13 +123,16 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
   const sky = buildSky();
   scene.add(sky.group);
 
-  // Drive sky + lights from the Korean clock (re-applied every frame so the
-  // scene slowly transitions as real time passes). Applied once now so frame 0
-  // is already correct.
+  const nightLamp = buildNightLamp();
+
+  // Drive sky + lights + the night lamp from the Korean clock (re-applied every
+  // frame so the scene slowly transitions as real time passes). Applied once now
+  // so frame 0 is already correct.
   const applyTime = () => {
     const s = todAt(currentHour());
     sky.applyTod(s);
     lights.applyTod(s);
+    nightLamp.applyTod(s);
   };
   applyTime();
 
@@ -139,6 +142,7 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
 
   const island = buildIsland();
   floating.add(island.group);
+  floating.add(nightLamp.group); // lamp bobs with the island
   const ocean = buildOcean();
   floating.add(ocean.group);
   const cables = buildCables();

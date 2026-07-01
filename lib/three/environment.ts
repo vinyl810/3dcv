@@ -144,73 +144,40 @@ export function buildSky(): SkyPart {
   });
   group.add(new THREE.Mesh(skyGeo, skyMat));
 
-  // ---- celestial bodies. This ortho camera is zoomed in tight, so the sky
-  // visible in-frame maps to world positions that are up-and-BACK (and low y);
-  // the far/high sky projects off the top. Positions below were unprojected from
-  // on-screen upper-sky points; radii are sized to the ~8.5-unit frustum
-  // half-height. All fade in at night (star/moon factors in applyTod).
-  const celestials: { mat: THREE.MeshBasicMaterial; base: number }[] = [];
-  const disc = (r: number, hex: number, x: number, y: number, z: number, base: number) => {
+  // ---- the moon: a realistic pale disc with darker maria + a soft halo. This
+  // ortho camera is zoomed in tight, so the sky shown in-frame maps to world
+  // positions that are up-and-BACK (low y) — the moon centre below was
+  // unprojected from an on-screen upper-sky point; radii are sized to the
+  // ~8.5-unit frustum half-height. Fades in at night (star factor in applyTod).
+  const celestials: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; base: number }[] = [];
+  const moonGroup = new THREE.Group();
+  moonGroup.position.set(-46.4, -26.5, -35.6);
+  moonGroup.lookAt(34, 30, 34); // face camera; children live in its screen plane
+  group.add(moonGroup);
+  const moonPart = (r: number, hex: number, lx: number, ly: number, lz: number, base: number, seg = 24) => {
     const m = new THREE.MeshBasicMaterial({ color: color(hex), transparent: true, opacity: 0, depthWrite: false });
-    const mesh = new THREE.Mesh(new THREE.CircleGeometry(r, 24), m);
-    mesh.position.set(x, y, z);
-    mesh.lookAt(34, 30, 34); // face the camera
-    group.add(mesh);
-    celestials.push({ mat: m, base });
+    const mesh = new THREE.Mesh(new THREE.CircleGeometry(r, seg), m);
+    mesh.position.set(lx, ly, lz);
+    mesh.visible = false;
+    moonGroup.add(mesh);
+    celestials.push({ mesh, mat: m, base });
     return mesh;
   };
+  moonPart(2.5, 0x8f9cb8, 0, 0, -0.4, 0.22); // soft halo (behind)
+  moonPart(1.35, 0xdfe3ea, 0, 0, 0, 0.96, 40); // pale body
+  moonPart(0.34, 0xb2b8c6, -0.45, 0.34, 0.12, 0.9, 18); // maria (craters, in front)
+  moonPart(0.22, 0xb2b8c6, 0.42, -0.18, 0.12, 0.9, 18);
+  moonPart(0.15, 0xb2b8c6, 0.12, 0.55, 0.12, 0.9, 18);
+  moonPart(0.12, 0xb2b8c6, -0.15, -0.45, 0.12, 0.9, 18);
 
-  // The moon — wide pale halo + bright core (opacity via the `moon` factor).
-  disc(2.6, 0x8fa0c4, -46.4, -26.5, -35.8, 0.3); // halo, fades with star
-  const moonMat = new THREE.MeshBasicMaterial({ color: color(0xdfe6f2), transparent: true, opacity: 0, depthWrite: false });
-  const moon = new THREE.Mesh(new THREE.CircleGeometry(1.25, 28), moonMat);
-  moon.position.set(-46.4, -26.5, -35.6);
-  moon.lookAt(34, 30, 34);
-  group.add(moon);
-  const moonCoreMat = new THREE.MeshBasicMaterial({ color: color(0xffffff), transparent: true, opacity: 0, depthWrite: false });
-  const moonCore = new THREE.Mesh(new THREE.CircleGeometry(0.65, 28), moonCoreMat);
-  moonCore.position.set(-46.4, -26.5, -35.4);
-  moonCore.lookAt(34, 30, 34);
-  group.add(moonCore);
-
-  // Planets (faint halo + bright core) + a couple of faint nebula discs.
-  disc(0.95, P.gold, -35.8, -25.5, -47, 0.18);
-  disc(0.5, P.gold, -35.8, -25.5, -46.8, 0.78);
-  disc(0.75, P.signalRed, -32.2, -27.9, -48.6, 0.16);
-  disc(0.4, P.signalRed, -32.2, -27.9, -48.4, 0.68);
-  disc(0.6, P.surfCyan, -48.5, -27.6, -32.6, 0.14);
-  disc(0.3, P.surfCyan, -48.5, -27.6, -32.4, 0.6);
-  disc(5.2, P.synapse, -41.5, -24.8, -41.9, 0.08); // nebula haze
-  disc(4.2, P.magenta, -39.3, -25.4, -43.6, 0.07); // nebula haze
-
-  // Shooting stars — a bright dot that zips across the sky once per period (night).
-  const shooters: {
-    mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; period: number; offset: number;
-    x0: number; y0: number; z0: number; dx: number; dy: number; dz: number;
-  }[] = [];
-  for (let i = 0; i < 2; i++) {
-    const m = new THREE.MeshBasicMaterial({ color: color(P.foam), transparent: true, opacity: 0, depthWrite: false });
-    const mesh = new THREE.Mesh(new THREE.CircleGeometry(0.32, 12), m);
-    mesh.lookAt(34, 30, 34);
-    group.add(mesh);
-    shooters.push({
-      mesh, mat: m, period: 8 + i * 5, offset: i * 4,
-      x0: -35.1 + i * 2, y0: -24.6 - i * 1.5, z0: -48.5 - i * 2,
-      dx: -5.8, dy: -2.7, dz: 8.0,
-    });
-  }
-
-  // Stars — static pixel points in the upper sky.
-  const starCount = 220;
+  // A few scattered star DOTS, placed in the on-screen sky patch (same up-and-
+  // back world region the moon lives in). Screen-space sized points.
+  const starCount = 46;
   const starPos = new Float32Array(starCount * 3);
   for (let i = 0; i < starCount; i++) {
-    // deterministic scatter (no Math.random — keep it reproducible)
-    const a = i * 2.39996; // golden angle
-    const y = 0.12 + (i / starCount) * 0.85;
-    const r = Math.sqrt(1 - Math.min(1, y * y));
-    starPos[i * 3] = Math.cos(a) * r * 120;
-    starPos[i * 3 + 1] = y * 120;
-    starPos[i * 3 + 2] = Math.sin(a) * r * 120;
+    starPos[i * 3] = -53 + rng(i, 71) * 25;
+    starPos[i * 3 + 1] = -29.5 + rng(i, 83) * 6.5;
+    starPos[i * 3 + 2] = -53 + rng(i, 97) * 24;
   }
   const starGeo = new THREE.BufferGeometry();
   starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
@@ -218,7 +185,7 @@ export function buildSky(): SkyPart {
     starGeo,
     new THREE.PointsMaterial({
       color: color(P.foam),
-      size: 1.1,
+      size: 1.6,
       sizeAttenuation: false,
       transparent: true,
       opacity: 0.9,
@@ -256,6 +223,7 @@ export function buildSky(): SkyPart {
   return {
     group,
     update: (t) => {
+      stars.visible = starDay > 0.01; // hide fully (out of the edge-detect pass) by day
       starMat.opacity = (0.7 + 0.25 * osc(t, 4)) * starDay;
       for (let i = 0; i < clouds.length; i++) {
         const c = clouds[i];
@@ -263,26 +231,17 @@ export function buildSky(): SkyPart {
         if (c.position.x > 80) c.position.x = -80;
         if (c.position.x < -80) c.position.x = 80;
       }
-      // shooting stars: a brief streak once per period, night only
-      for (const sh of shooters) {
-        const tt = ((t + sh.offset) % sh.period) / sh.period;
-        if (tt < 0.09) {
-          const k = tt / 0.09;
-          sh.mesh.position.set(sh.x0 + sh.dx * k, sh.y0 + sh.dy * k, sh.z0 + sh.dz * k);
-          sh.mat.opacity = Math.sin(k * Math.PI) * 0.9 * starDay;
-        } else {
-          sh.mat.opacity = 0;
-        }
-      }
     },
     applyTod: (s) => {
       su.top.value.setHex(s.skyTop, THREE.SRGBColorSpace);
       su.mid.value.setHex(s.skyMid, THREE.SRGBColorSpace);
       su.bot.value.setHex(s.skyBot, THREE.SRGBColorSpace);
       su.glow.value.setHex(s.skyGlow, THREE.SRGBColorSpace);
-      moonMat.opacity = 0.9 * s.moon;
-      moonCoreMat.opacity = 0.95 * s.moon;
-      for (const c of celestials) c.mat.opacity = c.base * s.star;
+      for (const c of celestials) {
+        const op = c.base * s.star;
+        c.mat.opacity = op;
+        c.mesh.visible = op > 0.004; // hide fully by day (keeps it out of the edge pass)
+      }
       for (const m of cloudMats) m.color.setHex(s.cloud, THREE.SRGBColorSpace);
       starDay = s.star;
     },
@@ -389,9 +348,9 @@ export function buildOcean(): EnvPart {
   }[] = [];
   const fallMat = () =>
     new THREE.MeshBasicMaterial({
-      color: color(P.surfCyan),
+      color: color(P.oceanTeal), // unified with the sea colour
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.68,
       side: THREE.DoubleSide,
     });
   const edges: [number, number, number][] = [
@@ -407,31 +366,32 @@ export function buildOcean(): EnvPart {
     falls.push({ mesh: f });
     group.add(f);
 
-    // FOAM CREST — a dense row of soft, flattened foam blobs (rounded spheres,
-    // not cubes) right at the waterline where the sea spills off. Each blob
-    // swells and settles on its own loop, so the foam softly forms and dissolves
-    // and the sea→waterfall seam always stays covered.
+    // FOAM BUBBLES — a SPARSE scatter of little round bubbles at the waterline.
+    // Each one grows in, holds, then POPS (expands + fades out), so bubbles keep
+    // appearing and bursting here and there. The waterfall now shares the sea's
+    // colour, so the seam reads continuous and the foam can be sparse/decorative.
     const alongX = ex === 0; // ±Z edges run along world X; ±X edges along world Z
     const HALF = 4.3;
-    const N = 26;
+    const N = 11; // sparse
     for (let k = 0; k < N; k++) {
       const r1 = rng(ei * 61 + k, 17);
       const r2 = rng(ei * 61 + k, 29);
       const r3 = rng(ei * 61 + k, 41);
-      const a = (((k + 0.5) / N) * 2 - 1) * HALF + (r1 - 0.5) * 0.22; // along the edge
+      const a = (((k + 0.5) / N) * 2 - 1) * HALF + (r1 - 0.5) * 0.55; // along the edge
       const jit = (r3 - 0.5) * 0.5; // wobble across the rim
-      const rad = 0.16 + r1 * 0.2; // blob radius
+      const rad = 0.12 + r1 * 0.14; // small round bubble
       const px = ex + (alongX ? a : jit);
       const pz = ez + (alongX ? jit : a);
-      const py = -0.3 + (r2 - 0.5) * 0.05; // sit right on the waterline
-      const op = 0.42 + r1 * 0.34;
-      const mat = glass(P.foam, op, 0.05 + r2 * 0.09).clone();
+      const py = -0.28 + (r2 - 0.5) * 0.05;
+      const op = 0.42 + r1 * 0.32;
+      const mat = glass(P.foam, op, 0.06 + r2 * 0.08).clone();
       const blob = sphere(group, P.foam, rad, px, py, pz, 10, { mat });
-      blob.scale.set(1, 0.55, 1); // flatten → foam resting on the surface
+      blob.scale.set(1, 0.9, 1); // round-ish bubble
+      blob.visible = false;
       foam.push({
-        mesh: blob, mat, base: op, baseY: py, sx: 1, sy: 0.55, sz: 1,
-        phase: ei * 1.7 + k * 0.5 + r1 * TAU, rate: 0.22 + r2 * 0.34,
-        minE: 0.34 + r1 * 0.16,
+        mesh: blob, mat, base: op, baseY: py, sx: 1, sy: 0.9, sz: 1,
+        phase: ei * 1.7 + k * 0.91 + r1 * TAU, rate: 0.15 + r2 * 0.2,
+        minE: 0,
       });
     }
 
@@ -448,17 +408,18 @@ export function buildOcean(): EnvPart {
         const m = falls[i].mesh.material as THREE.MeshBasicMaterial;
         m.opacity = 0.4 + 0.18 * osc(t, 0.6, i);
       }
-      // Soft churning foam: each blob swells and settles on its own loop (with a
-      // gentle bob), so the crest keeps softly forming and dissolving. minE keeps
-      // every blob partly present so the seam is always covered.
+      // Bubbles: each grows in, holds, then POPS (expands + fades). Gone for the
+      // rest of its loop, so at any moment only a few are up → sparse + popping.
       for (const fo of foam) {
-        const cyc = (t * fo.rate + fo.phase) % 1; // 0..1 birth→settle loop
-        const env = Math.sin(cyc * Math.PI); // 0→1→0
-        const e = fo.minE + (1 - fo.minE) * env; // minE..1 (multiplies the baked radius)
+        const cyc = (t * fo.rate + fo.phase) % 1;
+        let e = 0, op = 0;
+        if (cyc < 0.12) { const g = cyc / 0.12; e = g; op = g; } // grow in
+        else if (cyc < 0.4) { e = 1; op = 1; } // hold
+        else if (cyc < 0.48) { const p = (cyc - 0.4) / 0.08; e = 1 + p * 0.6; op = 1 - p; } // POP
+        fo.mesh.visible = e > 0.001;
         fo.mesh.scale.set(fo.sx * e, fo.sy * e, fo.sz * e);
-        fo.mesh.position.y =
-          fo.baseY + Math.sin(t * 2.0 + fo.phase) * 0.035 + (env - 0.5) * 0.035;
-        fo.mat.opacity = fo.base * (0.35 + 0.65 * env);
+        fo.mesh.position.y = fo.baseY + Math.sin(t * 2.0 + fo.phase) * 0.02;
+        fo.mat.opacity = fo.base * op;
       }
     },
   };
@@ -1109,6 +1070,45 @@ export function buildLights(): LightsPart {
       hemi.intensity = s.hemiI;
       rim.color.setHex(s.rimCol, THREE.SRGBColorSpace);
       rim.intensity = s.rimI;
+    },
+  };
+}
+
+export interface NightLampPart {
+  group: THREE.Group;
+  applyTod: (s: TodState) => void;
+}
+
+/**
+ * A tall street lamp that switches ON at night — its bulb glows and a warm point
+ * light turns up (both gated by the `star` factor), adding local light so the
+ * scene stays bright and readable after dark. Lives on the (bobbing) island.
+ */
+export function buildNightLamp(): NightLampPart {
+  const group = new THREE.Group();
+  const x = 6.2, z = 6.0; // clear front-right corner of the grass
+
+  // post + cross-arm + lamp head (opaque slate → also casts a shadow)
+  box(group, P.slate, 0.18, 3.2, 0.18, x, GY + 1.6, z);
+  box(group, P.slate, 0.16, 0.16, 0.7, x, GY + 3.1, z - 0.28);
+  box(group, P.slate, 0.44, 0.2, 0.44, x, GY + 3.05, z - 0.56);
+
+  // glowing bulb (emissive gated by night) inside a translucent gold shade
+  const bulbMat = glow(P.amber, 0.2);
+  voxel(group, P.amber, x, GY + 2.9, z - 0.56, 0.26, { mat: bulbMat });
+  box(group, P.gold, 0.4, 0.34, 0.4, x, GY + 2.9, z - 0.56, { mat: glass(P.gold, 0.18, 0.1).clone() });
+
+  // warm point light, intensity gated by night
+  const light = new THREE.PointLight(color(0xffd8a0), 0, 16, 1.5);
+  light.position.set(x, GY + 2.9, z - 0.56);
+  group.add(light);
+
+  return {
+    group,
+    applyTod: (s) => {
+      const n = s.star; // ~1 at night, 0 by day
+      bulbMat.emissiveIntensity = 0.25 + 1.7 * n;
+      light.intensity = 3.6 * n;
     },
   };
 }
