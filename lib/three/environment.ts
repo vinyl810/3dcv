@@ -276,13 +276,18 @@ export function makeWater(
     for (let i = 0; i < count; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
-      // calm, fine ripples — low amplitude so crests never wash over the rim
+      // FLOWING water: waves TRAVEL outward toward the spill edges plus a
+      // drifting diagonal swell, so the crest highlights scroll across the
+      // surface — it reads as a moving current being drawn off the island,
+      // not a still pond. (Amplitude stays low so nothing washes over the rim.)
+      const rr = Math.sqrt(x * x + z * z);
       const h =
-        Math.sin(x * 0.5 + t * 1.15) * 0.025 +
-        Math.cos(z * 0.45 - t * 0.95) * 0.025 +
-        Math.sin((x + z) * 0.22 + t * 0.55) * 0.014;
+        Math.sin(rr * 0.5 - t * 1.7) * 0.03 +
+        Math.sin((x * 0.6 + z * 0.35) - t * 1.25) * 0.022 +
+        Math.cos((x * 0.35 - z * 0.7) - t * 1.0) * 0.018 +
+        Math.sin((x + z) * 0.9 - t * 2.4) * 0.01;
       pos.setY(i, h);
-      const crest = THREE.MathUtils.clamp((h + 0.045) / 0.09, 0, 1);
+      const crest = THREE.MathUtils.clamp((h + 0.05) / 0.1, 0, 1);
       let r = teal.r + (cyan.r - teal.r) * crest;
       let g = teal.g + (cyan.g - teal.g) * crest;
       let b = teal.b + (cyan.b - teal.b) * crest;
@@ -320,7 +325,10 @@ export function buildOcean(): EnvPart {
   // at ~-0.36) so its hard top edge never pokes through the seam — the water
   // appears to pour straight out from under the foam.
   const falls: { mesh: THREE.Mesh }[] = [];
-  const foam: { mat: THREE.MeshToonMaterial; base: number; phase: number }[] = [];
+  const foam: {
+    mesh: THREE.Mesh; mat: THREE.MeshToonMaterial; base: number; baseY: number;
+    sx: number; sy: number; sz: number; phase: number; rate: number; chunk: boolean;
+  }[] = [];
   const fallMat = () =>
     new THREE.MeshBasicMaterial({
       color: color(P.surfCyan),
@@ -347,14 +355,14 @@ export function buildOcean(): EnvPart {
     const alongX = ex === 0; // ±Z edges run along world X; ±X edges along world Z
     const HALF = 4.0;
     // a thin continuous base so the seam stays covered in the gaps between chunks
-    const baseMat = glass(P.foam, 0.7, 0.12).clone();
-    box(
+    const baseMat = glass(P.foam, 0.6, 0.1).clone();
+    const baseMesh = box(
       group, P.foam,
       alongX ? 8.0 : 0.55, 0.3, alongX ? 0.55 : 8.0,
       ex, -0.4, ez,
       { mat: baseMat },
     );
-    foam.push({ mat: baseMat, base: 0.7, phase: ei * 0.9 });
+    foam.push({ mesh: baseMesh, mat: baseMat, base: 0.6, baseY: -0.4, sx: 0, sy: 0, sz: 0, phase: ei * 0.9, rate: 0, chunk: false });
     // frothy bumps on top — deterministic per (edge, k) so they stay put
     const N = 15;
     for (let k = 0; k < N; k++) {
@@ -369,9 +377,12 @@ export function buildOcean(): EnvPart {
       const pz = ez + (alongX ? jit : a);
       const py = -0.3 + h * 0.5 - 0.04 + (r2 - 0.5) * 0.06; // bumpy top, sat in the water
       const op = 0.5 + r1 * 0.45;
-      const mat = glass(P.foam, op, 0.1 + r2 * 0.18).clone();
-      box(group, P.foam, s, h, s, px, py, pz, { mat });
-      foam.push({ mat, base: op, phase: ei * 1.7 + k * 0.6 });
+      const mat = glass(P.foam, op, 0.08 + r2 * 0.12).clone();
+      const cm = box(group, P.foam, s, h, s, px, py, pz, { mat });
+      foam.push({
+        mesh: cm, mat, base: op, baseY: py, sx: s, sy: h, sz: s,
+        phase: ei * 1.7 + k * 0.6 + r1 * TAU, rate: 0.28 + r2 * 0.4, chunk: true,
+      });
     }
 
     // mist puff at the bottom
@@ -387,13 +398,22 @@ export function buildOcean(): EnvPart {
         const m = falls[i].mesh.material as THREE.MeshBasicMaterial;
         m.opacity = 0.4 + 0.18 * osc(t, 0.6, i);
       }
-      // flicker each froth chunk's opacity a touch so the foam keeps churning
+      // Real churning foam: each froth chunk cycles small→full→gone on its own
+      // offset loop (plus a bob), so the crest continuously bubbles up and
+      // dissolves instead of sitting there like a frozen block of ice.
       for (const fo of foam) {
-        fo.mat.opacity = THREE.MathUtils.clamp(
-          fo.base + 0.14 * Math.sin(t * 2.4 + fo.phase),
-          0.2,
-          1,
-        );
+        if (fo.chunk) {
+          const cyc = (t * fo.rate + fo.phase) % 1; // 0..1 birth→death loop
+          const env = Math.sin(cyc * Math.PI); // 0→1→0
+          const e = 0.14 + 0.86 * env; // scale envelope (never fully vanishes)
+          fo.mesh.scale.set(fo.sx * e, fo.sy * e, fo.sz * e);
+          fo.mesh.position.y =
+            fo.baseY + Math.sin(t * 2.2 + fo.phase) * 0.05 + (env - 0.5) * 0.06;
+          fo.mat.opacity = fo.base * (0.2 + 0.8 * env);
+        } else {
+          // continuous base strip: gentle shimmer only (keeps the seam covered)
+          fo.mat.opacity = fo.base * (0.72 + 0.22 * Math.sin(t * 1.8 + fo.phase));
+        }
       }
     },
   };
