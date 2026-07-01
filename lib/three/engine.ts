@@ -411,8 +411,13 @@ export class DioramaApp {
       if (!mesh.isMesh) return;
       const m = mesh.material as THREE.MeshToonMaterial | undefined;
       const toon = !!m && (m as { isMeshToonMaterial?: boolean }).isMeshToonMaterial === true;
-      const emI = (m && m.emissiveIntensity) || 0;
-      const structural = toon && !m!.transparent && emI <= 0.35 && !optedOut(mesh);
+      // "Glowing" must be judged by the emissive COLOR, not emissiveIntensity:
+      // MeshToonMaterial defaults emissiveIntensity to 1.0 even for plain
+      // materials (whose emissive is black), so an intensity test would wrongly
+      // exclude every normal mesh — which is exactly why no shadows showed.
+      const em = m && m.emissive;
+      const glowing = !!em && (em.r + em.g + em.b) * (m!.emissiveIntensity ?? 1) > 0.08;
+      const structural = toon && !m!.transparent && !glowing && !optedOut(mesh);
       mesh.castShadow = structural;
       mesh.receiveShadow = structural;
     });
