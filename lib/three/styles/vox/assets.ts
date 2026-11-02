@@ -16,9 +16,11 @@ export const VOX_BASE = '/models/vox/';
 export const VOXEL = 0.125;
 
 /**
- * Characters may be authored finer than landmarks: variant 'b' and 'cur' use
- * 2× density (0.0625), variant 'a' the landmark grain — see ./chars.ts.
+ * Characters are authored CHAR_RES× finer than landmarks (VOXEL / CHAR_RES =
+ * 0.0625 world units), with deliberately simple stylized shapes. Must match
+ * CHAR_RES in tools/models/chars.mjs.
  */
+export const CHAR_RES = 2;
 
 export type PivotSpec = [number, number, number] | 'center' | 'bottom' | 'top';
 

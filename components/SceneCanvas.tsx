@@ -45,13 +45,13 @@ export default function SceneCanvas({
     let disposed = false;
 
     // Dynamic import keeps three.js entirely out of the SSR bundle. The model
-    // style (?style=<id>) is its own chunk; its assets preload before building.
+    // set is its own chunk; its .vox assets preload before the world builds.
     (async () => {
-      const [{ DioramaApp: App }, styles] = await Promise.all([
+      const [{ DioramaApp: App }, { loadStyle }] = await Promise.all([
         import('@/lib/three/engine'),
         import('@/lib/three/styles'),
       ]);
-      const style = await styles.loadStyle(styles.styleFromUrl());
+      const style = await loadStyle();
       await style.preload?.();
       if (disposed || !mountRef.current) return;
       app = new App(

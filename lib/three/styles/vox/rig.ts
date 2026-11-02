@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { VoxInstance } from './assets';
 
 /**
- * Runtime skeleton for the humanoids authored by tools/humanoid.mjs.
+ * Runtime skeleton for the humanoids authored by tools/toonfolk.mjs.
  *
  * instantiate() creates every part as a flat pivot group at its joint. buildRig
  * re-parents them into a real hierarchy (keeping world positions), so rotating

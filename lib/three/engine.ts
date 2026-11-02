@@ -159,8 +159,8 @@ export class DioramaApp {
     const pixelSize = this.computePixelSize(dpr);
     this.composer = new EffectComposer(this.renderer);
     this.pixelPass = new RenderPixelatedPass(pixelSize, this.scene, this.camera);
-    this.pixelPass.normalEdgeStrength = 0.65;
-    this.pixelPass.depthEdgeStrength = 0.45;
+    this.pixelPass.normalEdgeStrength = 0.38; // softer facet highlights (no grass halos)
+    this.pixelPass.depthEdgeStrength = 0.5; // crisp silhouette outlines
     this.composer.addPass(this.pixelPass);
     this.composer.addPass(new OutputPass());
     this.composer.setPixelRatio(dpr);

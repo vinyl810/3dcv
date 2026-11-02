@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { LANDMARK_LAYOUT, type StationId } from '../../layout';
-import { VOXEL, instantiate, voxAsset, type VoxInstance } from './assets';
-import { charVariant } from './chars';
+import { CHAR_RES, VOXEL, instantiate, voxAsset, type VoxInstance } from './assets';
 
 /** Mirrors PROP_SCALE in lib/three/models.ts (landmark roots are scaled by slot.scale × this). */
 export const PROP_SCALE = 1.35;
@@ -51,14 +50,12 @@ export function nudgeOnScreen(group: THREE.Object3D, id: StationId, worldUnits: 
 }
 
 /**
- * Instantiate a character model (the variant picked by ?char, see ./chars.ts)
- * inside a landmark's rotated group. Character files are authored at `res`×
- * the landmark density with coordinates = res × the landmark's, so they land
- * exactly in place at landmarkVoxel / res per voxel.
+ * Instantiate a character model (authored at CHAR_RES× the landmark density,
+ * coordinates = CHAR_RES × the landmark's) inside a landmark's rotated group,
+ * so it lands exactly in place at landmarkVoxel / CHAR_RES per voxel.
  */
-export function characterModel(parent: { group: THREE.Group; s: number }, baseKey: string): VoxInstance {
-  const v = charVariant();
-  const inst = instantiate(baseKey + v.suffix, parent.s / v.res);
+export function characterModel(parent: { group: THREE.Group; s: number }, key: string): VoxInstance {
+  const inst = instantiate(key, parent.s / CHAR_RES);
   parent.group.add(inst.group);
   return inst;
 }

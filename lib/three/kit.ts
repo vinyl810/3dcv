@@ -37,17 +37,22 @@ export function color(hex: number): THREE.Color {
 }
 
 // ---- banded toon gradient: forces lighting into a few discrete steps ----
-function makeToonGradient(steps = 4): THREE.DataTexture {
-  const data = new Uint8Array(steps);
-  for (let i = 0; i < steps; i++) data[i] = Math.round((i / (steps - 1)) * 255);
-  const tex = new THREE.DataTexture(data, steps, 1, THREE.RedFormat);
+// three's toon shader samples this at u = 0.5 + 0.5·dot(N, L). The ramp is
+// shaped (8 texels, 5 distinct values) so faces turned AWAY from a light get
+// ~nothing from it (no flat 33% wash from the key/bounce on back faces) — that
+// keeps a clear key/fill value split: lit top > half-lit side > shaded side.
+const TOON_RAMP = [0, 0, 0, 0.1, 0.44, 0.62, 0.84, 1];
+function makeToonGradient(): THREE.DataTexture {
+  const data = new Uint8Array(TOON_RAMP.length);
+  for (let i = 0; i < TOON_RAMP.length; i++) data[i] = Math.round(TOON_RAMP[i] * 255);
+  const tex = new THREE.DataTexture(data, TOON_RAMP.length, 1, THREE.RedFormat);
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
   tex.generateMipmaps = false;
   tex.needsUpdate = true;
   return tex;
 }
-export const GRADIENT = makeToonGradient(4);
+export const GRADIENT = makeToonGradient();
 
 // ---- material caches (keyed so identical looks share one material) ----
 const litCache = new Map<number, THREE.MeshToonMaterial>();

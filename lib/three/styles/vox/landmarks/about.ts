@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { makeSelectionClock, type BuiltModel } from '../../../kit';
 import { landmarkModel, metaPoint, glowAll, characterModel, TAU } from '../common';
-import { charVariant } from '../chars';
 import { applyPose, buildRig, crouch, easeInOut, every, hopCurve, type Pose } from '../rig';
 
 /**
@@ -33,7 +32,6 @@ export function build(): BuiltModel {
   m.group.add(light);
   plate.userData.noShadow = true;
 
-  const toon = charVariant().id !== 'cur'; // stylized figures get a bouncier idle
   const clock = makeSelectionClock();
   const pose: Pose = {};
   const arr = (k: keyof Pose): [number, number, number] => {
@@ -63,7 +61,7 @@ export function build(): BuiltModel {
       arr('thighR')[2] = -0.035 * w;
       arr('torso')[2] = -0.05 * w;
       arr('torso')[0] = 0.02 * Math.sin((t / 3.6) * TAU);
-      if (toon) { // playful: a soft bob on the beat + head sway
+      { // playful: a soft bob on the beat + head sway
         const b = Math.abs(Math.sin((t / 1.4) * Math.PI));
         lift[1] += 0.35 * b;
         arr('head')[2] += 0.06 * Math.sin((t / 1.4) * Math.PI);

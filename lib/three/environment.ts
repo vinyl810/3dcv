@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { P, color, mat, emit, glass, box, cyl, cone, sphere, dome, voxel, pivot, osc, TAU, GRADIENT } from './kit';
+import { P, color, emit, glass, box, cyl, cone, voxel, pivot, TAU } from './kit';
 import { type Mark, MARK_COLORS } from '../marks-types';
 
 export interface EnvPart {
@@ -15,12 +15,21 @@ export interface EnvPart {
 // slowly transitions with the actual time.
 
 export interface TodState {
+  /** Backdrop gradient, top of the viewport → bottom, + a horizon glow tint. */
   skyTop: number; skyMid: number; skyBot: number; skyGlow: number;
+  /** Strength (0–1) of the low horizon glow (biased to the sun's screen side). */
+  haze: number;
   keyX: number; keyY: number; keyZ: number; keyCol: number; keyI: number;
   ambCol: number; ambI: number;
   hemiSky: number; hemiGnd: number; hemiI: number;
+  /** Cool "bounce" fill from the side opposite the key (hue-shifted shadow side). */
   rimCol: number; rimI: number;
-  shadowI: number; star: number; cloud: number; moon: number;
+  shadowI: number;
+  /** Night factor 0–1: drives lanterns / emissives (models.ts) + celestials. */
+  star: number;
+  /** Cloud tint + cloud amount (screen-space pixel clouds in the sky shader). */
+  cloud: number; cloudA: number;
+  moon: number;
 }
 interface TodKey extends TodState { h: number }
 
@@ -31,37 +40,64 @@ export function kstHour(): number {
 }
 
 // h = KST hour. keyX/Y/Z = key-light position (sun/moon direction → shadows).
+// Value structure: the toon ramp (kit.ts GRADIENT) gives faces turned away from
+// the key ~no key light, so each keyframe aims the key so that TOP faces read
+// lightest, one visible side (+X or +Z) mid, the other dark. Fills are kept low
+// and COOL (ambient/hemi/bounce) while the key is warm → hue-shifted shadows
+// instead of brown mud. Moonlight comes from −Z (the moon sits top-right on
+// screen) so the +X side catches it and +Z falls into blue shade.
+const MOON = { keyX: 14, keyY: 40, keyZ: -36 };
 const TOD_KEYS: TodKey[] = [
-  // NIGHT: sky stays deep + dark (mood), but the moonlight/ambient are lifted
-  // and kept cool so the props read clearly instead of sinking into black.
-  { h: 2.0, skyTop: 0x0a1024, skyMid: 0x121a36, skyBot: 0x1e2444, skyGlow: 0x2a2a52,
-    keyX: -40, keyY: 34, keyZ: -34, keyCol: 0xc2d0ee, keyI: 0.78,
-    ambCol: 0x2c3456, ambI: 0.9, hemiSky: 0x3c4c74, hemiGnd: 0x26324c, hemiI: 0.6,
-    rimCol: 0x6c7cac, rimI: 0.6, shadowI: 0.45, star: 1.0, cloud: 0x2a3350, moon: 1.0 },
-  { h: 5.5, skyTop: 0x1c2a52, skyMid: 0x35406a, skyBot: 0x574f74, skyGlow: 0x8a6478,
-    keyX: 52, keyY: 9, keyZ: 12, keyCol: 0xb2bae0, keyI: 0.72,
-    ambCol: 0x343c5e, ambI: 0.84, hemiSky: 0x44527a, hemiGnd: 0x2e3a4e, hemiI: 0.54,
-    rimCol: 0xc08a92, rimI: 0.56, shadowI: 0.55, star: 0.5, cloud: 0x4a4668, moon: 0.5 },
-  { h: 7.0, skyTop: 0x40548c, skyMid: 0x7a6e96, skyBot: 0xd89a92, skyGlow: 0xffb474,
-    keyX: 56, keyY: 12, keyZ: 8, keyCol: 0xffca88, keyI: 1.15,
-    ambCol: 0x3d4258, ambI: 0.72, hemiSky: 0x6a7a9c, hemiGnd: 0x3d5a48, hemiI: 0.45,
-    rimCol: 0xffae76, rimI: 0.6, shadowI: 0.82, star: 0.1, cloud: 0xd9a9a0, moon: 0.08 },
-  { h: 12.0, skyTop: 0x3f82cf, skyMid: 0x69a6db, skyBot: 0xbadcf0, skyGlow: 0xe8f4ff,
-    keyX: 8, keyY: 58, keyZ: 16, keyCol: 0xfff3df, keyI: 1.55,
-    ambCol: 0x93b2d2, ambI: 0.9, hemiSky: 0xa2caf0, hemiGnd: 0x5a9670, hemiI: 0.6,
-    rimCol: 0xbadcf0, rimI: 0.3, shadowI: 0.7, star: 0.0, cloud: 0xdff0ff, moon: 0.0 },
-  { h: 15.5, skyTop: 0x4a6ea8, skyMid: 0x8a86a8, skyBot: 0xd8b0a0, skyGlow: 0xffcf9a,
-    keyX: -20, keyY: 40, keyZ: 6, keyCol: 0xffe6c0, keyI: 1.4,
-    ambCol: 0x6a6a80, ambI: 0.84, hemiSky: 0x8a9ab0, hemiGnd: 0x5a8060, hemiI: 0.55,
-    rimCol: 0xffb488, rimI: 0.5, shadowI: 0.78, star: 0.0, cloud: 0xe8cbb0, moon: 0.0 },
-  { h: 18.5, skyTop: 0x3a3a68, skyMid: 0x86577e, skyBot: 0xe0847a, skyGlow: 0xff965a,
-    keyX: -54, keyY: 12, keyZ: -6, keyCol: 0xffb070, keyI: 1.2,
-    ambCol: 0x4a3a52, ambI: 0.72, hemiSky: 0x7a5a78, hemiGnd: 0x4a5a48, hemiI: 0.45,
-    rimCol: 0xff8a6a, rimI: 0.7, shadowI: 0.85, star: 0.08, cloud: 0xe0907e, moon: 0.06 },
-  { h: 20.5, skyTop: 0x252c4a, skyMid: 0x3d3a68, skyBot: 0x584a70, skyGlow: 0xc97c84,
-    keyX: 30, keyY: 34, keyZ: 26, keyCol: 0xf4dcb4, keyI: 1.25,
-    ambCol: 0x34384f, ambI: 0.85, hemiSky: 0x4a5a78, hemiGnd: 0x356a54, hemiI: 0.45,
-    rimCol: 0xc2727a, rimI: 0.7, shadowI: 0.75, star: 0.55, cloud: 0x3a3358, moon: 0.45 },
+  // DEEP NIGHT — moody blue, readable; warm lantern pools carry the scene.
+  { h: 1.5, skyTop: 0x0c1230, skyMid: 0x18224a, skyBot: 0x262c5c, skyGlow: 0x3c3a78, haze: 0.3,
+    ...MOON, keyCol: 0xb8c6f0, keyI: 0.95,
+    ambCol: 0x2c3460, ambI: 0.8, hemiSky: 0x4e5e94, hemiGnd: 0x222a44, hemiI: 0.75,
+    rimCol: 0x5a68b0, rimI: 0.35, shadowI: 0.5, star: 1.0, cloud: 0x2a3462, cloudA: 0.35, moon: 1.0 },
+  // PRE-DAWN — indigo lifting to violet at the bottom.
+  { h: 4.6, skyTop: 0x141e48, skyMid: 0x2c3672, skyBot: 0x564a86, skyGlow: 0x9a6890, haze: 0.5,
+    ...MOON, keyCol: 0xb0b8e8, keyI: 0.9,
+    ambCol: 0x323a6a, ambI: 0.8, hemiSky: 0x56629a, hemiGnd: 0x2a3048, hemiI: 0.72,
+    rimCol: 0x7a6ab0, rimI: 0.35, shadowI: 0.55, star: 0.8, cloud: 0x4a4478, cloudA: 0.45, moon: 0.8 },
+  // DAWN — low warm sun from the east (+X), cool lavender fill.
+  { h: 6.2, skyTop: 0x34488a, skyMid: 0x7c70aa, skyBot: 0xeea494, skyGlow: 0xffc488, haze: 0.85,
+    keyX: 48, keyY: 17, keyZ: 30, keyCol: 0xffbe8c, keyI: 1.6,
+    ambCol: 0x3c4274, ambI: 0.66, hemiSky: 0x7482bc, hemiGnd: 0x3a4658, hemiI: 0.68,
+    rimCol: 0x6a76c8, rimI: 0.4, shadowI: 0.75, star: 0.15, cloud: 0xf6bcaa, cloudA: 0.75, moon: 0.1 },
+  // MORNING — clean blue, warm-white sun from the east.
+  { h: 8.6, skyTop: 0x2e6cc4, skyMid: 0x63a0de, skyBot: 0xb0d8f2, skyGlow: 0xfff0d6, haze: 0.4,
+    keyX: 44, keyY: 42, keyZ: 26, keyCol: 0xffe8c8, keyI: 1.55,
+    ambCol: 0x5e78b4, ambI: 0.5, hemiSky: 0x9cc4f0, hemiGnd: 0x4c7458, hemiI: 0.7,
+    rimCol: 0x7896d8, rimI: 0.3, shadowI: 0.7, star: 0.0, cloud: 0xffffff, cloudA: 0.85, moon: 0.0 },
+  // NOON — bright, saturated, high sun slightly south (+Z) and west of camera.
+  { h: 12.5, skyTop: 0x2a6ad0, skyMid: 0x56a0ea, skyBot: 0xa4d8f6, skyGlow: 0xeaf8ff, haze: 0.3,
+    keyX: -16, keyY: 58, keyZ: 30, keyCol: 0xfff6e8, keyI: 1.65,
+    ambCol: 0x6a8cc8, ambI: 0.48, hemiSky: 0xa8d0f6, hemiGnd: 0x507c60, hemiI: 0.72,
+    rimCol: 0x86a6e0, rimI: 0.3, shadowI: 0.65, star: 0.0, cloud: 0xffffff, cloudA: 0.9, moon: 0.0 },
+  // AFTERNOON — still blue, sun swinging west, a first warm hint low down.
+  { h: 15.5, skyTop: 0x2c62b8, skyMid: 0x6a9ad8, skyBot: 0xd0d8ea, skyGlow: 0xffdcae, haze: 0.4,
+    keyX: -34, keyY: 44, keyZ: 32, keyCol: 0xffe6bc, keyI: 1.65,
+    ambCol: 0x6474b4, ambI: 0.48, hemiSky: 0x98b6e8, hemiGnd: 0x56785a, hemiI: 0.68,
+    rimCol: 0x8a8ad8, rimI: 0.32, shadowI: 0.72, star: 0.0, cloud: 0xfff4e6, cloudA: 0.8, moon: 0.0 },
+  // GOLDEN HOUR — gold key, periwinkle shadows, peach horizon.
+  { h: 17.3, skyTop: 0x34509e, skyMid: 0x8484c4, skyBot: 0xf4c4a0, skyGlow: 0xffb878, haze: 0.65,
+    keyX: -40, keyY: 28, keyZ: 38, keyCol: 0xffc884, keyI: 1.8,
+    ambCol: 0x5458a4, ambI: 0.56, hemiSky: 0x8c90d4, hemiGnd: 0x4a6458, hemiI: 0.68,
+    rimCol: 0x7a7ae0, rimI: 0.42, shadowI: 0.8, star: 0.0, cloud: 0xffdcb8, cloudA: 0.8, moon: 0.0 },
+  // SUNSET — low orange sun, violet sky, coral horizon; island stays colourful.
+  { h: 18.7, skyTop: 0x2a306e, skyMid: 0x6c5498, skyBot: 0xf08c78, skyGlow: 0xffa45e, haze: 0.9,
+    keyX: -38, keyY: 17, keyZ: 42, keyCol: 0xffa868, keyI: 1.75,
+    ambCol: 0x4c4c98, ambI: 0.64, hemiSky: 0x7e78c8, hemiGnd: 0x3c4c5e, hemiI: 0.7,
+    rimCol: 0x6c74d8, rimI: 0.48, shadowI: 0.82, star: 0.1, cloud: 0xffa08c, cloudA: 0.8, moon: 0.05 },
+  // BLUE HOUR — sun gone, moon up; lanterns coming on.
+  { h: 19.7, skyTop: 0x182052, skyMid: 0x343a7a, skyBot: 0x6c5690, skyGlow: 0xc4748a, haze: 0.6,
+    ...MOON, keyCol: 0xc4c4f0, keyI: 0.95,
+    ambCol: 0x363c74, ambI: 0.75, hemiSky: 0x5a66a8, hemiGnd: 0x283248, hemiI: 0.72,
+    rimCol: 0x7464b8, rimI: 0.38, shadowI: 0.55, star: 0.6, cloud: 0x4c4480, cloudA: 0.5, moon: 0.6 },
+  // EVENING NIGHT
+  { h: 21.5, skyTop: 0x0f1638, skyMid: 0x1e2854, skyBot: 0x2e3466, skyGlow: 0x464282, haze: 0.35,
+    ...MOON, keyCol: 0xbccaf0, keyI: 0.95,
+    ambCol: 0x2e3662, ambI: 0.8, hemiSky: 0x4e6096, hemiGnd: 0x242c46, hemiI: 0.75,
+    rimCol: 0x5a6ab0, rimI: 0.35, shadowI: 0.5, star: 1.0, cloud: 0x2c3664, cloudA: 0.38, moon: 1.0 },
 ];
 
 const _lc = (a: number, b: number, f: number) => a + (b - a) * f;
@@ -73,9 +109,9 @@ function _lh(a: number, b: number, f: number): number {
   return _ca.lerp(_cb, f).getHex(THREE.SRGBColorSpace);
 }
 const _todOut: TodState = {
-  skyTop: 0, skyMid: 0, skyBot: 0, skyGlow: 0, keyX: 0, keyY: 0, keyZ: 0, keyCol: 0,
+  skyTop: 0, skyMid: 0, skyBot: 0, skyGlow: 0, haze: 0, keyX: 0, keyY: 0, keyZ: 0, keyCol: 0,
   keyI: 0, ambCol: 0, ambI: 0, hemiSky: 0, hemiGnd: 0, hemiI: 0, rimCol: 0, rimI: 0,
-  shadowI: 0, star: 0, cloud: 0, moon: 0,
+  shadowI: 0, star: 0, cloud: 0, cloudA: 0, moon: 0,
 };
 
 /** Interpolated sky/light state for a KST hour (0–24). Reuses one object. */
@@ -89,9 +125,11 @@ export function todAt(hour: number): TodState {
     const hh = i === n - 1 && hour < TOD_KEYS[0].h ? hour + 24 : hour;
     if (hh >= h0 && hh < h1) { a = cur; b = nxt; f = (hh - h0) / (h1 - h0); break; }
   }
+  f = f * f * (3 - 2 * f); // ease between keys (no visible kinks at keyframes)
   const o = _todOut;
   o.skyTop = _lh(a.skyTop, b.skyTop, f); o.skyMid = _lh(a.skyMid, b.skyMid, f);
   o.skyBot = _lh(a.skyBot, b.skyBot, f); o.skyGlow = _lh(a.skyGlow, b.skyGlow, f);
+  o.haze = _lc(a.haze, b.haze, f);
   o.keyX = _lc(a.keyX, b.keyX, f); o.keyY = _lc(a.keyY, b.keyY, f); o.keyZ = _lc(a.keyZ, b.keyZ, f);
   o.keyCol = _lh(a.keyCol, b.keyCol, f); o.keyI = _lc(a.keyI, b.keyI, f);
   o.ambCol = _lh(a.ambCol, b.ambCol, f); o.ambI = _lc(a.ambI, b.ambI, f);
@@ -99,7 +137,8 @@ export function todAt(hour: number): TodState {
   o.hemiI = _lc(a.hemiI, b.hemiI, f);
   o.rimCol = _lh(a.rimCol, b.rimCol, f); o.rimI = _lc(a.rimI, b.rimI, f);
   o.shadowI = _lc(a.shadowI, b.shadowI, f); o.star = _lc(a.star, b.star, f);
-  o.cloud = _lh(a.cloud, b.cloud, f); o.moon = _lc(a.moon, b.moon, f);
+  o.cloud = _lh(a.cloud, b.cloud, f); o.cloudA = _lc(a.cloudA, b.cloudA, f);
+  o.moon = _lc(a.moon, b.moon, f);
   return o;
 }
 
@@ -107,129 +146,137 @@ export interface SkyPart extends EnvPart { applyTod: (s: TodState) => void }
 export interface LightsPart { group: THREE.Group; applyTod: (s: TodState) => void }
 
 /* ============================================================= SKY ===== */
+// The camera looks DOWN at the island, so a world-space sky dome only ever
+// showed its below-horizon colour (one flat wall). Instead the dome is shaded in
+// SCREEN space: a top→bottom gradient of the TOD colours, quantised into bands
+// with 4×4 Bayer dithering (computed on the low-res pixel-pass buffer, so each
+// dither cell is one chunky pixel), a low horizon glow on the sun's side, soft
+// pixel clouds, and — at night — stars + the moon. Everything celestial lives in
+// this one shader (no meshes), so the pixel pass's edge detection can never draw
+// an outline around a faded-out moon/halo. The moon is placed in CSS pixels,
+// clear of the top-left title and the top-right button (desktop + mobile).
 
 export function buildSky(): SkyPart {
   const group = new THREE.Group();
 
-  // Vertical gradient dome (unlit shader — pure backdrop).
   const skyGeo = new THREE.SphereGeometry(140, 24, 16);
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     uniforms: {
-      top: { value: color(0x252c4a) }, // lifted indigo zenith (brighter backdrop)
-      mid: { value: color(0x3d3a68) }, // twilight indigo body
-      bot: { value: color(0x584a70) }, // lighter dusky violet near the horizon
-      glow: { value: color(0xc97c84) }, // warm rose glow band
+      top: { value: color(0x0f1638) },
+      mid: { value: color(0x1e2854) },
+      bot: { value: color(0x2e3466) },
+      glow: { value: color(0x464282) },
+      cloudCol: { value: color(0x2c3664) },
+      haze: { value: 0.3 },
+      sunX: { value: 0 },
+      starVis: { value: 1 },
+      cloudAmt: { value: 0.4 },
+      time: { value: 0 },
+      view: { value: new THREE.Vector2(1440, 900) },
+      moonPos: { value: new THREE.Vector2(1160, 150) },
+      moonR: { value: 40 },
     },
-    vertexShader: `
-      varying vec3 vPos;
+    vertexShader: /* glsl */ `
+      varying vec2 vScr;
       void main() {
-        vPos = position;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vScr = gl_Position.xy / gl_Position.w; // ortho → affine, exact per pixel
       }`,
-    fragmentShader: `
-      varying vec3 vPos;
-      uniform vec3 top; uniform vec3 mid; uniform vec3 bot; uniform vec3 glow;
+    fragmentShader: /* glsl */ `
+      varying vec2 vScr;
+      uniform vec3 top; uniform vec3 mid; uniform vec3 bot; uniform vec3 glow; uniform vec3 cloudCol;
+      uniform float haze; uniform float sunX; uniform float starVis; uniform float cloudAmt; uniform float time;
+      uniform vec2 view; uniform vec2 moonPos; uniform float moonR;
+
+      float bayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
+      float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float vnoise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                   mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+      }
+
       void main() {
-        float h = normalize(vPos).y;
-        // deep dusk base: keeps the whole backdrop dark + cohesive
-        vec3 c = mix(bot, mid, smoothstep(-0.15, 0.18, h));
-        c = mix(c, top, smoothstep(0.22, 0.85, h));
-        // soft warm rose glow hugging the horizon line only (not a flat wall)
-        float band = exp(-pow((h + 0.02) / 0.07, 2.0));
-        c = mix(c, glow, band * 0.4);
+        vec2 uv = vScr * 0.5 + 0.5;               // 0..1, y up
+        vec2 px = vec2(uv.x, 1.0 - uv.y) * view;  // CSS px from the top-left
+        float d = bayer4(gl_FragCoord.xy);        // one cell = one pixel-art block
+
+        // banded, dithered vertical gradient (top → mid → bottom)
+        const float B = 11.0;
+        float yq = floor(uv.y * B + d) / B;
+        vec3 c = mix(bot, mid, smoothstep(0.0, 0.6, yq));
+        c = mix(c, top, smoothstep(0.5, 1.0, yq));
+
+        // low horizon glow, strongest on the sun's side of the screen
+        float side = clamp(1.0 - abs(uv.x - (0.5 + 0.42 * sunX)) * 1.3, 0.0, 1.0);
+        float g = (1.0 - smoothstep(0.0, 0.5, uv.y)) * (0.45 + 0.55 * side) * haze;
+        g = floor(g * 5.0 + d) / 5.0;
+        c = mix(c, glow, g * 0.85);
+
+        // soft pixel clouds (two drifting decks, kept out of the title band)
+        vec2 q = vec2(px.x / 230.0 + time * 0.012, px.y / 46.0);
+        float n = vnoise(q) * 0.6 + vnoise(q * 2.1 + 7.3) * 0.3 + vnoise(q * 4.3 + 3.1) * 0.1;
+        float deck = smoothstep(0.02, 0.18, uv.y) * (1.0 - smoothstep(0.34, 0.5, uv.y))
+                   + 0.6 * smoothstep(0.52, 0.6, uv.y) * (1.0 - smoothstep(0.68, 0.78, uv.y));
+        float cd = smoothstep(0.5, 0.72, n) * deck;
+        cd = floor(cd * 3.0 + d) / 3.0;
+        float under = smoothstep(0.5, 0.7, vnoise(q + vec2(0.0, 0.35)) * 0.6 + vnoise((q + vec2(0.0, 0.35)) * 2.1 + 7.3) * 0.3);
+        vec3 cc = mix(cloudCol, mix(cloudCol, c, 0.45), step(under + 0.08, n) * 0.8);
+        c = mix(c, cc, cd * cloudAmt);
+
+        // night: stars (one block each) + the moon, faded by starVis
+        if (starVis > 0.001) {
+          vec2 cell = floor(gl_FragCoord.xy);
+          float h = hash(cell);
+          float title = step(px.x, 480.0) * step(px.y, 125.0);
+          float sky = smoothstep(0.35, 0.6, uv.y) * (1.0 - title);
+          float tw = 0.55 + 0.45 * sin(time * (1.5 + 2.0 * fract(h * 91.0)) + h * 60.0);
+          float st = step(0.9935, h) * sky * tw;
+          vec2 mp = px - moonPos;
+          float dm = length(mp);
+          st *= step(moonR * 1.9, dm);
+          c = mix(c, vec3(1.0, 0.97, 0.88), st * starVis);
+
+          // halo: two dithered rings fading out from the disc
+          float hv = 1.0 - clamp((dm - moonR) / (moonR * 0.85), 0.0, 1.0);
+          hv = floor(hv * 3.0 + d) / 3.0;
+          c = mix(c, vec3(0.55, 0.6, 0.78), hv * 0.22 * starVis * step(moonR, dm));
+          if (dm < moonR) {
+            vec2 m = mp / moonR;
+            float maria = step(length(m - vec2(-0.32, -0.25)), 0.26) + step(length(m - vec2(0.3, 0.14)), 0.17)
+                        + step(length(m - vec2(0.08, -0.48)), 0.11) + step(length(m - vec2(-0.12, 0.42)), 0.1);
+            vec3 mc = mix(vec3(0.86, 0.88, 0.92), vec3(0.62, 0.65, 0.74), min(maria, 1.0));
+            // terminator shade on the lower-left limb
+            mc = mix(mc, vec3(0.6, 0.64, 0.76), step(0.55, dot(m, vec2(-0.6, 0.8))) * 0.7);
+            c = mix(c, mc, starVis);
+          }
+        }
         gl_FragColor = vec4(c, 1.0);
       }`,
   });
-  group.add(new THREE.Mesh(skyGeo, skyMat));
+  const dome = new THREE.Mesh(skyGeo, skyMat);
+  dome.frustumCulled = false;
+  group.add(dome);
 
-  // ---- the moon: a realistic pale disc with darker maria + a soft halo. This
-  // ortho camera is zoomed in tight, so the sky shown in-frame maps to world
-  // positions that are up-and-BACK (low y) — the moon centre below was
-  // unprojected from an on-screen upper-sky point; radii are sized to the
-  // ~8.5-unit frustum half-height. Fades in at night (star factor in applyTod).
-  const celestials: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; base: number }[] = [];
-  const moonGroup = new THREE.Group();
-  moonGroup.position.set(-46.4, -26.5, -35.6);
-  moonGroup.lookAt(34, 30, 34); // face camera; children live in its screen plane
-  group.add(moonGroup);
-  const moonPart = (r: number, hex: number, lx: number, ly: number, lz: number, base: number, seg = 24) => {
-    const m = new THREE.MeshBasicMaterial({ color: color(hex), transparent: true, opacity: 0, depthWrite: false });
-    const mesh = new THREE.Mesh(new THREE.CircleGeometry(r, seg), m);
-    mesh.position.set(lx, ly, lz);
-    mesh.visible = false;
-    moonGroup.add(mesh);
-    celestials.push({ mesh, mat: m, base });
-    return mesh;
-  };
-  moonPart(2.5, 0x8f9cb8, 0, 0, -0.4, 0.22); // soft halo (behind)
-  moonPart(1.35, 0xdfe3ea, 0, 0, 0, 0.96, 40); // pale body
-  moonPart(0.34, 0xb2b8c6, -0.45, 0.34, 0.12, 0.9, 18); // maria (craters, in front)
-  moonPart(0.22, 0xb2b8c6, 0.42, -0.18, 0.12, 0.9, 18);
-  moonPart(0.15, 0xb2b8c6, 0.12, 0.55, 0.12, 0.9, 18);
-  moonPart(0.12, 0xb2b8c6, -0.15, -0.45, 0.12, 0.9, 18);
-
-  // A few scattered star DOTS, placed in the on-screen sky patch (same up-and-
-  // back world region the moon lives in). Screen-space sized points.
-  const starCount = 46;
-  const starPos = new Float32Array(starCount * 3);
-  for (let i = 0; i < starCount; i++) {
-    starPos[i * 3] = -53 + rng(i, 71) * 25;
-    starPos[i * 3 + 1] = -29.5 + rng(i, 83) * 6.5;
-    starPos[i * 3 + 2] = -53 + rng(i, 97) * 24;
-  }
-  const starGeo = new THREE.BufferGeometry();
-  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-  const stars = new THREE.Points(
-    starGeo,
-    new THREE.PointsMaterial({
-      color: color(P.foam),
-      size: 1.6,
-      sizeAttenuation: false,
-      transparent: true,
-      opacity: 0.9,
-    }),
-  );
-  group.add(stars);
-
-  // Drifting clouds — flat slabs. Materials are cloned so they can be re-tinted
-  // per time of day (light in daylight, rose at dusk, blue-grey at night).
-  const clouds: THREE.Mesh[] = [];
-  const cloudMats: THREE.MeshToonMaterial[] = [];
-  const cloudData = [
-    { x: -40, y: 26, z: -30, s: 1.4 },
-    { x: 46, y: 32, z: -44, s: 1.0 },
-    { x: 20, y: 22, z: -60, s: 1.7 },
-  ];
-  for (const c of cloudData) {
-    const m = new THREE.Group();
-    const mA = mat(P.dusk).clone();
-    const mB = mat(P.dusk).clone();
-    const mC = mat(P.horizon).clone();
-    box(m, P.dusk, 10, 2.4, 4, 0, 0, 0, { mat: mA });
-    box(m, P.dusk, 6, 2.4, 4, -5, 1.2, 0, { mat: mB });
-    box(m, P.horizon, 7, 2, 4, 4, 1, 0, { mat: mC });
-    cloudMats.push(mA, mB, mC);
-    m.scale.setScalar(c.s);
-    m.position.set(c.x, c.y, c.z);
-    clouds.push(m as unknown as THREE.Mesh);
-    group.add(m);
-  }
-
-  const starMat = stars.material as THREE.PointsMaterial;
   const su = skyMat.uniforms;
-  let starDay = 1; // 0 by day, 1 at night — set by applyTod
   return {
     group,
     update: (t) => {
-      stars.visible = starDay > 0.01; // hide fully (out of the edge-detect pass) by day
-      starMat.opacity = (0.7 + 0.25 * osc(t, 4)) * starDay;
-      for (let i = 0; i < clouds.length; i++) {
-        const c = clouds[i];
-        c.position.x += 0.012 * (i % 2 === 0 ? 1 : -1);
-        if (c.position.x > 80) c.position.x = -80;
-        if (c.position.x < -80) c.position.x = 80;
+      su.time.value = t;
+      // Screen-space celestial placement (CSS px) — clear of the top-left title
+      // (~460×110) and the top-right link button on desktop and mobile.
+      const w = window.innerWidth, h = window.innerHeight;
+      su.view.value.set(w, h);
+      if (w <= 640) {
+        su.moonPos.value.set(w * 0.77, 178);
+        su.moonR.value = 25;
+      } else {
+        su.moonPos.value.set(w - Math.max(250, w * 0.19), 150);
+        su.moonR.value = 40;
       }
     },
     applyTod: (s) => {
@@ -237,207 +284,24 @@ export function buildSky(): SkyPart {
       su.mid.value.setHex(s.skyMid, THREE.SRGBColorSpace);
       su.bot.value.setHex(s.skyBot, THREE.SRGBColorSpace);
       su.glow.value.setHex(s.skyGlow, THREE.SRGBColorSpace);
-      for (const c of celestials) {
-        const op = c.base * s.star;
-        c.mat.opacity = op;
-        c.mesh.visible = op > 0.004; // hide fully by day (keeps it out of the edge pass)
-      }
-      for (const m of cloudMats) m.color.setHex(s.cloud, THREE.SRGBColorSpace);
-      starDay = s.star;
+      su.cloudCol.value.setHex(s.cloud, THREE.SRGBColorSpace);
+      su.haze.value = s.haze;
+      su.cloudAmt.value = s.cloudA;
+      // which screen side the sun is on: camera-right is world (1,0,-1)/√2
+      const kx = s.keyX - s.keyZ;
+      su.sunX.value = Math.max(-1, Math.min(1, kx / 50));
+      // celestials only once it's meaningfully night, then fade in
+      const v = Math.min(1, Math.max(0, (s.star - 0.3) / 0.4));
+      su.starVis.value = v * v * (3 - 2 * v);
     },
   };
 }
 
-/* ============================================================ OCEAN ===== */
-
-/** Animated sine-field water plane with foam-cyan crests via vertex colors. */
-export function makeWater(
-  w: number,
-  d: number,
-  segs = 28,
-  y = 0,
-): { mesh: THREE.Mesh; update: (t: number) => void } {
-  const geo = new THREE.PlaneGeometry(w, d, segs, segs);
-  geo.rotateX(-Math.PI / 2);
-  const count = geo.attributes.position.count;
-  const colors = new Float32Array(count * 3);
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const material = new THREE.MeshToonMaterial({
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.92,
-  });
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.position.y = y;
-
-  const pos = geo.attributes.position as THREE.BufferAttribute;
-  const col = geo.attributes.color as THREE.BufferAttribute;
-  const teal = color(P.oceanTeal);
-  const cyan = color(P.surfCyan);
-  const foam = color(P.foam);
-
-  // Precompute two foam weights per vertex (Chebyshev distance to the square
-  // island edge): a soft RING that hugs the shoreline (so foam never blobs
-  // across the open sea), and an EDGE band over the last stretch before the
-  // sea pours off the rim — that's where the calm water meets the waterfalls.
-  const ring = new Float32Array(count);
-  const edge = new Float32Array(count);
-  const half = Math.min(w, d) / 2; // outer edge of the plane = the spill lip
-  for (let i = 0; i < count; i++) {
-    const sq = Math.max(Math.abs(pos.getX(i)), Math.abs(pos.getZ(i)));
-    ring[i] = Math.exp(-Math.pow((sq - 9.0) / 0.9, 2));
-    edge[i] = THREE.MathUtils.smoothstep(sq, half - 1.6, half - 0.05);
-  }
-
-  const update = (t: number) => {
-    for (let i = 0; i < count; i++) {
-      const x = pos.getX(i);
-      const z = pos.getZ(i);
-      // FLOWING water: waves TRAVEL outward toward the spill edges plus a
-      // drifting diagonal swell, so the crest highlights scroll across the
-      // surface — it reads as a moving current being drawn off the island,
-      // not a still pond. (Amplitude stays low so nothing washes over the rim.)
-      const rr = Math.sqrt(x * x + z * z);
-      const h =
-        Math.sin(rr * 0.5 - t * 1.7) * 0.03 +
-        Math.sin((x * 0.6 + z * 0.35) - t * 1.25) * 0.022 +
-        Math.cos((x * 0.35 - z * 0.7) - t * 1.0) * 0.018 +
-        Math.sin((x + z) * 0.9 - t * 2.4) * 0.01;
-      pos.setY(i, h);
-      const crest = THREE.MathUtils.clamp((h + 0.05) / 0.1, 0, 1);
-      let r = teal.r + (cyan.r - teal.r) * crest;
-      let g = teal.g + (cyan.g - teal.g) * crest;
-      let b = teal.b + (cyan.b - teal.b) * crest;
-      // foam brightens the shoreline ring (a little more on the crests)
-      const fw = ring[i] * (0.5 + 0.4 * crest);
-      r += (foam.r - r) * fw;
-      g += (foam.g - g) * fw;
-      b += (foam.b - b) * fw;
-      // churning WHITE foam where the calm sea spills into the waterfalls
-      const churn = 0.55 + 0.45 * Math.sin(x * 1.9 - z * 1.5 + t * 3.0);
-      const ew = edge[i] * THREE.MathUtils.clamp(churn, 0, 1);
-      r += (foam.r - r) * ew;
-      g += (foam.g - g) * ew;
-      b += (foam.b - b) * ew;
-      col.setXYZ(i, r, g, b);
-    }
-    pos.needsUpdate = true;
-    col.needsUpdate = true;
-    geo.computeVertexNormals();
-  };
-  update(0);
-  return { mesh, update };
-}
-
-export function buildOcean(): EnvPart {
-  const group = new THREE.Group();
-
-  // The surrounding sea the island sits in (lowered below the beach rim so its
-  // calm ripples no longer wash up over the sand/earth edge).
-  const sea = makeWater(22, 22, 36, -0.3);
-  group.add(sea.mesh);
-
-  // Four waterfalls spilling off the middle of each diamond edge into mist. The
-  // fall top sits flush with the sea (-0.3) and shares its colour, so the sea
-  // and the falling water connect seamlessly. Steady opacity (no flicker).
-  const foam: {
-    mesh: THREE.Mesh; mat: THREE.MeshToonMaterial; base: number; baseY: number;
-    sx: number; sy: number; sz: number; phase: number; rate: number; minE: number;
-  }[] = [];
-  // LIT toon material (like the sea) so the fall brightens/darkens with the
-  // time of day exactly as the water does. Uses the sea's brighter crest colour
-  // (surfCyan) so the vertical, less-lit plane still matches the strongly top-lit
-  // horizontal sea.
-  const fallMat = () => {
-    const m = new THREE.MeshToonMaterial({
-      color: color(P.surfCyan),
-      gradientMap: GRADIENT,
-      transparent: true,
-      opacity: 0.88,
-      side: THREE.DoubleSide,
-    });
-    (m as THREE.Material as { flatShading?: boolean }).flatShading = true;
-    return m;
-  };
-  const edges: [number, number, number][] = [
-    [0, 0, 11],
-    [0, 0, -11],
-    [11, 0, 0],
-    [-11, 0, 0],
-  ];
-  edges.forEach(([ex, , ez], ei) => {
-    // Waterfall at the middle of each edge (original size). Its TOP sits flush
-    // with the sea surface (-0.3) so the sea and the falling water connect with
-    // no gap between them.
-    const f = new THREE.Mesh(new THREE.PlaneGeometry(8, 6), fallMat());
-    f.position.set(ex, -3.3, ez);
-    if (ex !== 0) f.rotation.y = Math.PI / 2;
-    group.add(f);
-
-    // FOAM BUBBLES — a DENSE scatter of tiny round bubbles along the waterline,
-    // in a good mix of sizes. Each one grows in, holds, then POPS (expands +
-    // fades), so bubbles keep appearing and bursting all along the rim.
-    const alongX = ex === 0; // ±Z edges run along world X; ±X edges along world Z
-    const HALF = 4.4;
-    const N = 110; // packed dense (same span, more bubbles)
-    for (let k = 0; k < N; k++) {
-      const r1 = rng(ei * 61 + k, 17);
-      const r2 = rng(ei * 61 + k, 29);
-      const r3 = rng(ei * 61 + k, 41);
-      const a = (((k + 0.5) / N) * 2 - 1) * HALF + (r1 - 0.5) * 0.34; // along the edge
-      const jit = (r3 - 0.5) * 0.5; // wobble across the rim
-      const rad = 0.035 + r1 * r1 * 0.095; // tiny + varied (≤ half of before)
-      const px = ex + (alongX ? a : jit);
-      const pz = ez + (alongX ? jit : a);
-      const py = -0.28 + (r2 - 0.5) * 0.05;
-      const op = 0.42 + r1 * 0.32;
-      const mat = glass(P.foam, op, 0.06 + r2 * 0.08).clone();
-      const blob = sphere(group, P.foam, rad, px, py, pz, 10, { mat });
-      blob.scale.set(1, 0.9, 1); // round-ish bubble
-      blob.visible = false;
-      foam.push({
-        mesh: blob, mat, base: op, baseY: py, sx: 1, sy: 0.9, sz: 1,
-        phase: ei * 1.7 + k * 0.91 + r1 * TAU, rate: 0.15 + r2 * 0.2,
-        minE: 0,
-      });
-    }
-
-    // soft mist puff at the base of the fall
-    const mist = sphere(group, P.foam, 1, ex, -6.2, ez, 10, { opacity: 0.22 });
-    mist.scale.set(alongX ? 3.6 : 0.7, 0.7, alongX ? 0.7 : 3.6);
-  });
-
-  return {
-    group,
-    update: (t) => {
-      sea.update(t);
-      // Bubbles: each grows in, holds, then POPS (expands + fades). Gone for the
-      // rest of its loop, so at any moment only a few are up → sparse + popping.
-      for (const fo of foam) {
-        const cyc = (t * fo.rate + fo.phase) % 1;
-        let e = 0, op = 0;
-        if (cyc < 0.1) { const g = cyc / 0.1; e = g; op = g; } // grow in
-        else if (cyc < 0.68) { e = 1; op = 1; } // hold (longer → more up at once)
-        else if (cyc < 0.76) { const p = (cyc - 0.68) / 0.08; e = 1 + p * 0.6; op = 1 - p; } // POP
-        fo.mesh.visible = e > 0.001;
-        fo.mesh.scale.set(fo.sx * e, fo.sy * e, fo.sz * e);
-        fo.mesh.position.y = fo.baseY + Math.sin(t * 2.0 + fo.phase) * 0.02;
-        fo.mat.opacity = fo.base * op;
-      }
-    },
-  };
-}
-
-/* ============================================================ DECOR ===== */
-// Non-landmark scenery: trees (3 species), bushes, flowers, mushrooms, rocks,
-// crystals, lanterns, fireflies and birds. Everything is kept short — or, for
-// the tall trees, restricted to the back/sides — so the decor enriches the
-// island without ever occluding a landmark. All placement is deterministic
-// (the rng below; never Math.random) so the diorama stays reproducible.
+/* ========================================================== HELPERS ===== */
 
 const GY = 0.5; // grass surface height (top of the grass slab)
 
-/** Deterministic pseudo-random in [0,1) — keeps the scatter stable across loads. */
+/** Deterministic pseudo-random in [0,1) — keeps scatter stable across loads. */
 function rng(i: number, salt = 0): number {
   const v = Math.sin(i * 127.1 + salt * 311.7 + 7.13) * 43758.5453;
   return v - Math.floor(v);
@@ -446,419 +310,6 @@ function rng(i: number, salt = 0): number {
 /** Animatable (cloned) emissive material so we never mutate the shared cache. */
 function glow(hex: number, intensity = 1): THREE.MeshToonMaterial {
   return emit(hex, intensity).clone();
-}
-
-function classicTree(g: THREE.Object3D, x: number, z: number, s = 1) {
-  cyl(g, P.earth, 0.2 * s, 0.28 * s, 1.1 * s, x, GY + 0.55 * s, z, 6);
-  cone(g, P.moss, 0.95 * s, 1.4 * s, x, GY + 1.5 * s, z, 7);
-  cone(g, P.grass, 0.75 * s, 1.2 * s, x, GY + 2.2 * s, z, 7);
-}
-
-function pineTree(g: THREE.Object3D, x: number, z: number, s = 1) {
-  cyl(g, P.earth, 0.16 * s, 0.22 * s, 0.9 * s, x, GY + 0.45 * s, z, 6);
-  cone(g, P.moss, 0.8 * s, 1.15 * s, x, GY + 1.15 * s, z, 8);
-  cone(g, P.moss, 0.62 * s, 1.05 * s, x, GY + 1.85 * s, z, 8);
-  cone(g, P.grass, 0.42 * s, 0.95 * s, x, GY + 2.55 * s, z, 8);
-}
-
-function roundTree(g: THREE.Object3D, x: number, z: number, s = 1) {
-  cyl(g, P.earth, 0.22 * s, 0.3 * s, 1.0 * s, x, GY + 0.5 * s, z, 6);
-  sphere(g, P.moss, 0.95 * s, x, GY + 1.55 * s, z, 8);
-  sphere(g, P.grass, 0.66 * s, x + 0.32 * s, GY + 1.85 * s, z - 0.2 * s, 8);
-  sphere(g, P.moss, 0.58 * s, x - 0.34 * s, GY + 1.45 * s, z + 0.26 * s, 8);
-}
-
-function bush(g: THREE.Object3D, x: number, z: number, s = 1) {
-  dome(g, P.moss, 0.55 * s, x, GY, z, 8);
-  dome(g, P.grass, 0.42 * s, x + 0.3 * s, GY, z - 0.16 * s, 8);
-  dome(g, P.moss, 0.36 * s, x - 0.28 * s, GY, z + 0.2 * s, 8);
-}
-
-function flowerPatch(g: THREE.Object3D, x: number, z: number, hex: number, seed: number) {
-  for (let k = 0; k < 3; k++) {
-    const sx = x + (rng(seed, k * 2 + 1) - 0.5) * 0.7;
-    const sz = z + (rng(seed, k * 2 + 2) - 0.5) * 0.7;
-    box(g, P.moss, 0.06, 0.42, 0.06, sx, GY + 0.21, sz);
-    voxel(g, hex, sx, GY + 0.46, sz, 0.18);
-    voxel(g, P.gold, sx, GY + 0.5, sz, 0.07);
-  }
-}
-
-function mushroom(g: THREE.Object3D, x: number, z: number, capHex: number) {
-  cyl(g, P.foam, 0.1, 0.13, 0.34, x, GY + 0.17, z, 6);
-  dome(g, capHex, 0.28, x, GY + 0.34, z, 8);
-  voxel(g, P.foam, x + 0.11, GY + 0.4, z, 0.05);
-  voxel(g, P.foam, x - 0.09, GY + 0.38, z + 0.08, 0.045);
-}
-
-function rockCluster(g: THREE.Object3D, x: number, z: number, s: number, seed: number) {
-  box(g, P.slate, 0.6 * s, 0.42 * s, 0.5 * s, x, GY + 0.21 * s, z, { rot: [0, rng(seed, 1) * TAU, 0] });
-  box(g, P.earth, 0.4 * s, 0.3 * s, 0.45 * s, x + 0.3 * s, GY + 0.15 * s, z - 0.2 * s, { rot: [0, rng(seed, 2) * TAU, 0] });
-  box(g, P.slate, 0.3 * s, 0.24 * s, 0.32 * s, x - 0.26 * s, GY + 0.12 * s, z + 0.22 * s);
-}
-
-/** Crystal shard cluster; returns its (cloned) emissive mat for a glow pulse. */
-function crystalCluster(g: THREE.Object3D, x: number, z: number, hex: number): THREE.MeshToonMaterial {
-  const m = glow(hex, 0.9);
-  voxel(g, P.slate, x, GY + 0.06, z, 0.24);
-  cone(g, hex, 0.13, 0.64, x, GY + 0.42, z, 5, { mat: m });
-  cone(g, hex, 0.09, 0.44, x + 0.16, GY + 0.3, z + 0.06, 5, { mat: m });
-  cone(g, hex, 0.08, 0.36, x - 0.14, GY + 0.26, z - 0.1, 5, { mat: m });
-  return m;
-}
-
-/** Dusk lantern (slim post + glowing orb); returns its emissive mat for a flicker. */
-function lantern(
-  g: THREE.Object3D, x: number, z: number, withLight = false,
-): { mat: THREE.MeshToonMaterial; light: THREE.PointLight | null } {
-  const m = glow(P.amber, 1.1);
-  box(g, P.slate, 0.1, 0.95, 0.1, x, GY + 0.47, z);
-  box(g, P.slate, 0.26, 0.08, 0.26, x, GY + 0.98, z);
-  voxel(g, P.amber, x, GY + 0.8, z, 0.2, { mat: m });
-  box(g, P.slate, 0.05, 0.16, 0.05, x, GY + 1.06, z);
-  let light: THREE.PointLight | null = null;
-  if (withLight) {
-    // a real warm light source; off by day, its intensity is gated by night
-    // (the `star` factor) in models.ts so the lantern actually lights the grass.
-    light = new THREE.PointLight(color(0xffca7a), 0, 8, 1.7);
-    light.position.set(x, GY + 0.85, z);
-    light.userData.nightBase = 2.6;
-    g.add(light);
-  }
-  return { mat: m, light };
-}
-
-/**
- * A flat, subdivided surface tile whose vertices are softly mottled between a
- * base color and a few close shades. Laid just above a big flat slab (grass /
- * sand), it gives the surface a dappled, hand-placed pixel-texture feel instead
- * of one dead-flat color — and the soft blotches survive the pixelation pass as
- * blocky patches. Deterministic (rng per vertex) and static (no animation).
- */
-function mottledTop(
-  parent: THREE.Object3D,
-  size: number,
-  y: number,
-  baseHex: number,
-  shades: number[],
-  segs: number,
-  amount: number,
-  seed = 0,
-): void {
-  const geo = new THREE.PlaneGeometry(size, size, segs, segs);
-  geo.rotateX(-Math.PI / 2);
-  const count = geo.attributes.position.count;
-  const colors = new Float32Array(count * 3);
-  const base = color(baseHex);
-  const sc = shades.map((h) => color(h));
-  for (let i = 0; i < count; i++) {
-    const s = sc[Math.floor(rng(i + seed * 911, 71) * sc.length) % sc.length];
-    const k = amount * rng(i + seed * 911, 83); // how far this vertex tints
-    colors[i * 3] = base.r + (s.r - base.r) * k;
-    colors[i * 3 + 1] = base.g + (s.g - base.g) * k;
-    colors[i * 3 + 2] = base.b + (s.b - base.b) * k;
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: GRADIENT });
-  (material as THREE.Material as { flatShading?: boolean }).flatShading = true;
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.position.y = y;
-  parent.add(mesh);
-}
-
-/* =========================================================== ISLAND ===== */
-
-export function buildIsland(): EnvPart & { nightLights: THREE.PointLight[] } {
-  const group = new THREE.Group();
-
-  // Beach rim (sand peeking out under the grass).
-  box(group, P.sand, 17, 0.7, 17, 0, -0.35, 0);
-  // Grass top slab.
-  box(group, P.grass, 15.4, 1.0, 15.4, 0, 0.0, 0);
-  // moss underside hint
-  box(group, P.moss, 15.6, 0.3, 15.6, 0, -0.55, 0);
-
-  // Dappled surface texture: softly mottle the big flat slabs so the grass and
-  // beach read as hand-placed pixel texture instead of one flat fill.
-  mottledTop(group, 15.4, GY + 0.01, P.grass, [0x73a986, 0x4c8161, P.moss], 24, 0.4, 1);
-  mottledTop(group, 17, 0.012, P.sand, [0xe6c89c, 0xc8a276, 0xb98f63], 26, 0.36, 2);
-
-  // Rock taper down to a point (sky-island silhouette).
-  box(group, P.earth, 14, 1.4, 14, 0, -1.4, 0);
-  box(group, P.earth, 11, 1.6, 11, 0, -2.9, 0);
-  box(group, P.moss, 11.2, 0.3, 11.2, 0, -2.0, 0);
-  box(group, P.earth, 7.5, 1.8, 7.5, 0, -4.6, 0);
-  box(group, P.earth, 4, 1.8, 4, 0, -6.2, 0);
-  cone(group, P.earth, 2.6, 3.2, 0, -8.4, 0, 6);
-
-  // ---------------------------------------------------------------- DECOR
-  // Keep-out volumes: the 8 landmark footprints (xz must match models.ts
-  // LANDMARKS) plus a clearance radius. Decor is only placed where it's clear
-  // of these (and, as we go, of each other) so nothing crowds a landmark.
-  const blockers: [number, number, number][] = [
-    [0, 0, 2.6], [0, -6, 2.2], [-6.5, 1, 2.2], [4.5, 2.5, 2.0],
-    [-1, 5, 2.2], [-5, -4, 2.2], [3, -5.5, 2.2], [6, -1, 2.2],
-  ];
-  const blocked = (x: number, z: number, extra = 0) =>
-    blockers.some(([bx, bz, r]) => (x - bx) ** 2 + (z - bz) ** 2 < (r + extra) ** 2);
-  const onGrass = (x: number, z: number, m = 0.8) =>
-    Math.abs(x) <= 7.0 - m && Math.abs(z) <= 7.0 - m;
-
-  // Tall trees (3 species) frame the back/sides only — never the +x+z front
-  // tip toward the camera, where they would loom over the scene.
-  const trees: [number, number, number, 'classic' | 'pine' | 'round'][] = [
-    [-7, -7, 1.15, 'pine'],
-    [7, -7, 1.0, 'classic'],
-    [-7, 7, 1.0, 'round'],
-    [-7.2, -2, 0.9, 'classic'],
-    [1.8, -7, 0.85, 'pine'],
-    [-2.6, 7, 0.8, 'round'],
-    [-7, 3.5, 0.75, 'pine'],
-  ];
-  for (const [x, z, s, kind] of trees) {
-    if (kind === 'pine') pineTree(group, x, z, s);
-    else if (kind === 'round') roundTree(group, x, z, s);
-    else classicTree(group, x, z, s);
-    blockers.push([x, z, 0.9 * s + 0.3]);
-  }
-
-  // Animated decor materials we'll pulse/flicker in update().
-  const crystalMats: { mat: THREE.MeshToonMaterial; phase: number }[] = [];
-  const lanternMats: { mat: THREE.MeshToonMaterial; phase: number }[] = [];
-
-  // Slim dusk lanterns: light the front tip + a couple of inner paths.
-  const lanternSpots: [number, number][] = [
-    [6.4, 6.4], [3.2, 5.6], [5.6, 3.2], [-3.4, -1.6], [1.6, 2.2],
-  ];
-  const lanternLights: THREE.PointLight[] = [];
-  lanternSpots.forEach(([x, z], i) => {
-    if (blocked(x, z, 0.2) || !onGrass(x, z, 0.6)) return;
-    const l = lantern(group, x, z, lanternLights.length < 3); // cap real lights to 3
-    lanternMats.push({ mat: l.mat, phase: i * 0.37 });
-    if (l.light) lanternLights.push(l.light);
-    blockers.push([x, z, 0.6]);
-  });
-
-  // Deterministic scatter of LOW ground props into whatever gaps remain.
-  const FLOWER = [P.magenta, P.amber, P.gold, P.synapse, P.signalRed];
-  const CAP = [P.signalRed, P.magenta, P.amber];
-  const GEM = [P.surfCyan, P.synapse, P.magenta];
-  let idx = 0;
-  for (let gx = -6.2; gx <= 6.2; gx += 1.7) {
-    for (let gz = -6.2; gz <= 6.2; gz += 1.7) {
-      idx++;
-      const x = gx + (rng(idx, 1) - 0.5) * 1.25;
-      const z = gz + (rng(idx, 2) - 0.5) * 1.25;
-      if (!onGrass(x, z) || blocked(x, z, 0.2)) continue;
-      if (rng(idx, 3) < 0.4) continue; // leave breathing room — keep it natural
-      const pick = rng(idx, 4);
-      if (pick < 0.3) {
-        flowerPatch(group, x, z, FLOWER[idx % FLOWER.length], idx);
-      } else if (pick < 0.48) {
-        bush(group, x, z, 0.85 + rng(idx, 5) * 0.4);
-      } else if (pick < 0.64) {
-        rockCluster(group, x, z, 0.7 + rng(idx, 6) * 0.5, idx);
-      } else if (pick < 0.8) {
-        mushroom(group, x, z, CAP[idx % CAP.length]);
-      } else if (pick < 0.92) {
-        crystalMats.push({ mat: crystalCluster(group, x, z, GEM[idx % GEM.length]), phase: rng(idx, 7) });
-      } else {
-        voxel(group, P.moss, x, GY + 0.18, z, 0.34);
-        voxel(group, P.grass, x + 0.2, GY + 0.22, z, 0.26);
-      }
-      blockers.push([x, z, 0.7]);
-    }
-  }
-
-  // A few classic grass tufts (kept from before).
-  const tufts: [number, number][] = [
-    [3, 5], [-3, -4], [5, -2], [-5, 3], [2, -5], [-2, 6],
-  ];
-  for (const [x, z] of tufts) {
-    if (blocked(x, z)) continue;
-    voxel(group, P.moss, x, 0.7, z, 0.4);
-    voxel(group, P.grass, x + 0.25, 0.8, z, 0.3);
-  }
-
-  // Micro grass blades — a sparse grain of tiny tufts that adds close-up
-  // texture to the lawn without crowding the props (deterministic, subtle).
-  for (let i = 0; i < 26; i++) {
-    const x = (rng(i, 31) - 0.5) * 13.4;
-    const z = (rng(i, 32) - 0.5) * 13.4;
-    if (!onGrass(x, z, 0.4) || blocked(x, z, 0.1)) continue;
-    const sh = rng(i, 33) < 0.5 ? P.moss : 0x4c8161;
-    box(group, sh, 0.05, 0.13, 0.05, x, GY + 0.06, z, { rot: [0, 0, (rng(i, 34) - 0.5) * 0.5] });
-    box(group, sh, 0.045, 0.1, 0.045, x + 0.08, GY + 0.05, z + 0.06, { rot: [0, 0, (rng(i, 35) - 0.5) * 0.5] });
-  }
-
-  // Pebbles + dirt flecks bedded into the beach ring (ground grain).
-  for (let i = 0; i < 14; i++) {
-    const edge = Math.floor(rng(i, 41) * 4);
-    const along = (rng(i, 42) * 2 - 1) * 8.0;
-    const d = 7.9 + rng(i, 43) * 0.45;
-    const x = edge === 2 ? d : edge === 3 ? -d : along;
-    const z = edge === 0 ? d : edge === 1 ? -d : along;
-    const s = 0.16 + rng(i, 44) * 0.18;
-    box(group, rng(i, 45) < 0.5 ? P.slate : P.earth, s, s * 0.55, s * 0.9, x, 0.06, z, {
-      rot: [0, rng(i, 46) * TAU, 0],
-    });
-  }
-
-  // Fireflies — drifting emissive motes that twinkle (dusk life over the grass).
-  const fireflies: {
-    mesh: THREE.Mesh; mat: THREE.MeshToonMaterial;
-    cx: number; cz: number; cy: number; rx: number; rz: number;
-    sx: number; sz: number; sy: number; phase: number; base: number;
-  }[] = [];
-  for (let i = 0; i < 14; i++) {
-    const mat0 = glow(rng(i, 9) < 0.5 ? P.amber : P.gold, 1.3);
-    const cx = (rng(i, 1) - 0.5) * 11;
-    const cz = (rng(i, 2) - 0.5) * 11;
-    const mesh = voxel(group, P.amber, cx, 1.6, cz, 0.12, { mat: mat0 });
-    fireflies.push({
-      mesh, mat: mat0, cx, cz,
-      cy: 1.1 + rng(i, 3) * 1.6,
-      rx: 0.8 + rng(i, 4) * 1.6, rz: 0.8 + rng(i, 5) * 1.6,
-      sx: 0.2 + rng(i, 6) * 0.3, sz: 0.18 + rng(i, 7) * 0.3,
-      sy: 0.3 + rng(i, 8) * 0.4, phase: rng(i, 0) * TAU, base: 1.0 + rng(i, 9) * 0.6,
-    });
-  }
-
-  // Birds — small flapping voxel birds that wander high around the island.
-  // Each bird carries its own phases/speeds so no two retrace the same path:
-  // a slowly breathing orbit radius, layered out-of-phase altitude waves, and
-  // a flap-then-glide envelope. Banking/pitch are derived per frame from a
-  // finite-difference of the flight path (cheap, no stored prev-frame state).
-  interface Bird {
-    grp: THREE.Group; wl: THREE.Object3D; wr: THREE.Object3D;
-    a: number; r: number; y: number; spd: number;
-    // wandering orbit radius (slow secondary oscillation)
-    rAmp: number; rSpd: number; rPh: number;
-    // layered altitude waves (two out-of-phase, slow climbs/glides)
-    yAmp1: number; ySpd1: number; yPh1: number;
-    yAmp2: number; ySpd2: number; yPh2: number;
-    // flap-then-glide envelope + flap timing
-    flapSpd: number; envSpd: number; envPh: number; flapPh: number;
-  }
-  const birds: Bird[] = [];
-  for (let i = 0; i < 3; i++) {
-    const grp = new THREE.Group();
-    // Birds fly high; their cast shadow lands far from them and reads as a
-    // random dark gash on the lawn — opt them out of shadow casting.
-    grp.userData.noShadow = true;
-    box(grp, P.slate, 0.2, 0.13, 0.36, 0, 0, 0);
-    box(grp, P.dusk, 0.15, 0.1, 0.12, 0, 0.02, 0.24); // head
-    const wl = pivot(grp, 0, 0.05, 0);
-    box(wl, P.slate, 0.5, 0.06, 0.22, -0.3, 0, 0);
-    const wr = pivot(grp, 0, 0.05, 0);
-    box(wr, P.slate, 0.5, 0.06, 0.22, 0.3, 0, 0);
-    group.add(grp);
-    birds.push({
-      grp, wl, wr,
-      a: i * 2.2, r: 9.5 + i * 0.8, y: 4.2 + i * 0.7, spd: 0.18 + i * 0.03,
-      rAmp: 1.1 + rng(i, 11) * 0.9, rSpd: 0.05 + rng(i, 12) * 0.04, rPh: rng(i, 13) * TAU,
-      yAmp1: 0.7 + rng(i, 14) * 0.5, ySpd1: 0.16 + rng(i, 15) * 0.08, yPh1: rng(i, 16) * TAU,
-      yAmp2: 0.35 + rng(i, 17) * 0.3, ySpd2: 0.33 + rng(i, 18) * 0.12, yPh2: rng(i, 19) * TAU,
-      flapSpd: 8 + rng(i, 20) * 2.5, envSpd: 0.55 + rng(i, 21) * 0.35, envPh: rng(i, 22) * TAU,
-      flapPh: rng(i, 23) * TAU,
-    });
-  }
-  // Sample a bird's world position at an arbitrary time (for the path itself
-  // and for tiny finite-difference look-ahead used to derive bank + pitch).
-  const birdPos = (b: Bird, time: number, out: THREE.Vector3) => {
-    const a = b.a + time * b.spd;
-    const r = b.r + Math.sin(time * b.rSpd + b.rPh) * b.rAmp;
-    const y =
-      b.y +
-      Math.sin(time * b.ySpd1 + b.yPh1) * b.yAmp1 +
-      Math.sin(time * b.ySpd2 + b.yPh2) * b.yAmp2;
-    out.set(Math.cos(a) * r, y, Math.sin(a) * r);
-    return out;
-  };
-  // Reusable scratch vectors for the per-frame path finite-difference — these
-  // are allocated ONCE here, never inside the update loop.
-  const bP0 = new THREE.Vector3();
-  const bP1 = new THREE.Vector3();
-
-  // Floating detached rock chunks (orbit slowly).
-  const chunks: THREE.Mesh[] = [];
-  const chunkData = [
-    { a: 0, r: 13, y: -3, s: 1.2 },
-    { a: 2.1, r: 14, y: -5, s: 0.8 },
-    { a: 4.2, r: 12.5, y: -2, s: 1.0 },
-  ];
-  for (const c of chunkData) {
-    const m = box(group, P.earth, 1.6 * c.s, 1.2 * c.s, 1.6 * c.s, 0, 0, 0);
-    m.userData.orbit = c;
-    chunks.push(m);
-  }
-
-  return {
-    group,
-    nightLights: lanternLights,
-    update: (t) => {
-      for (const m of chunks) {
-        const c = m.userData.orbit;
-        const a = c.a + t * 0.05;
-        m.position.set(Math.cos(a) * c.r, c.y + osc(t, 5, c.a) * 0.4, Math.sin(a) * c.r);
-        m.rotation.y = a * 1.5;
-      }
-      // Crystals breathe a slow glow; lanterns flicker like a warm flame.
-      for (const c of crystalMats) {
-        c.mat.emissiveIntensity = 0.75 + 0.45 * (0.5 + 0.5 * osc(t, 2.2, c.phase * TAU));
-      }
-      for (const l of lanternMats) {
-        l.mat.emissiveIntensity = 1.0 + 0.3 * osc(t, 1.4, l.phase * TAU) + 0.12 * osc(t, 0.27, l.phase);
-      }
-      // Fireflies drift in lazy lissajous loops and twinkle independently.
-      for (const f of fireflies) {
-        f.mesh.position.set(
-          f.cx + Math.sin(t * f.sx + f.phase) * f.rx,
-          f.cy + Math.sin(t * f.sy + f.phase * 1.7) * 0.5,
-          f.cz + Math.cos(t * f.sz + f.phase) * f.rz,
-        );
-        f.mat.emissiveIntensity = f.base * (0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t * 3 + f.phase * 2)));
-      }
-      // Birds wander the island: bank into turns, climb & glide on layered
-      // altitude waves, pitch with vertical velocity, and flap-then-glide.
-      for (const b of birds) {
-        // Sample the path now and a hair ahead — gives heading + vertical
-        // velocity without storing any prev-frame state (eps in seconds).
-        const eps = 0.05;
-        birdPos(b, t, bP0);
-        birdPos(b, t + eps, bP1);
-        b.grp.position.copy(bP0);
-
-        // Heading from horizontal velocity (atan2(dz, dx)); face along travel.
-        const vx = bP1.x - bP0.x;
-        const vz = bP1.z - bP0.z;
-        const heading = Math.atan2(vz, vx);
-        // Body's nose is local +z, so yaw = -heading + π/2 (matches the old
-        // tangent facing, now driven by the actual wandering velocity).
-        b.grp.rotation.y = -heading + Math.PI / 2;
-
-        // Vertical velocity → gentle nose-up on climb, nose-down on descent.
-        const vy = (bP1.y - bP0.y) / eps;
-        b.grp.rotation.x = THREE.MathUtils.clamp(-vy * 0.5, -0.5, 0.5);
-
-        // Bank: lean into the turn by the heading change rate. The orbit
-        // sweeps one way, so sign is stable; scale by horizontal speed so
-        // faster passes lean harder. Negative roll banks toward the center.
-        const turn = -b.spd; // d(heading)/dt is ~ -spd for this CW-ish sweep
-        const hSpeed = Math.hypot(vx, vz) / eps;
-        b.grp.rotation.z = THREE.MathUtils.clamp(turn * hSpeed * 0.9, -0.6, 0.6);
-
-        // Flap-then-glide: a slow envelope opens (flap hard) then closes
-        // (glide). During glides hold the wings at a slight raised dihedral.
-        const env = 0.5 + 0.5 * Math.sin(t * b.envSpd + b.envPh); // 0..1
-        const flapAmp = 0.12 + env * env * 0.55; // mostly-glide between bursts
-        const dihedral = 0.18 * (1 - env); // wings raised when gliding
-        const flap = Math.sin(t * b.flapSpd + b.flapPh) * flapAmp;
-        b.wl.rotation.z = flap + dihedral;
-        b.wr.rotation.z = -flap - dihedral;
-      }
-    },
-  };
 }
 
 /* ==================================================== VISITOR MARKS ===== */
@@ -1069,7 +520,7 @@ export function buildLights(): LightsPart {
   const hemi = new THREE.HemisphereLight(color(0x4a5a78), color(P.moss), 0.45);
   group.add(hemi);
 
-  // Back rim for edge separation against the sky.
+  // Cool bounce fill opposite the key (repositioned by applyTod).
   const rim = new THREE.DirectionalLight(color(P.horizon), 0.7);
   rim.position.set(-26, 12, -30);
   group.add(rim);
@@ -1088,45 +539,9 @@ export function buildLights(): LightsPart {
       hemi.intensity = s.hemiI;
       rim.color.setHex(s.rimCol, THREE.SRGBColorSpace);
       rim.intensity = s.rimI;
-    },
-  };
-}
-
-export interface NightLampPart {
-  group: THREE.Group;
-  applyTod: (s: TodState) => void;
-}
-
-/**
- * A tall street lamp that switches ON at night — its bulb glows and a warm point
- * light turns up (both gated by the `star` factor), adding local light so the
- * scene stays bright and readable after dark. Lives on the (bobbing) island.
- */
-export function buildNightLamp(): NightLampPart {
-  const group = new THREE.Group();
-  const x = 6.2, z = 6.0; // clear front-right corner of the grass
-
-  // post + cross-arm + lamp head (opaque slate → also casts a shadow)
-  box(group, P.slate, 0.18, 3.2, 0.18, x, GY + 1.6, z);
-  box(group, P.slate, 0.16, 0.16, 0.7, x, GY + 3.1, z - 0.28);
-  box(group, P.slate, 0.44, 0.2, 0.44, x, GY + 3.05, z - 0.56);
-
-  // glowing bulb (emissive gated by night) inside a translucent gold shade
-  const bulbMat = glow(P.amber, 0.2);
-  voxel(group, P.amber, x, GY + 2.9, z - 0.56, 0.26, { mat: bulbMat });
-  box(group, P.gold, 0.4, 0.34, 0.4, x, GY + 2.9, z - 0.56, { mat: glass(P.gold, 0.18, 0.1).clone() });
-
-  // warm point light, intensity gated by night
-  const light = new THREE.PointLight(color(0xffd8a0), 0, 16, 1.5);
-  light.position.set(x, GY + 2.9, z - 0.56);
-  group.add(light);
-
-  return {
-    group,
-    applyTod: (s) => {
-      const n = s.star; // ~1 at night, 0 by day
-      bulbMat.emissiveIntensity = 0.25 + 1.7 * n;
-      light.intensity = 3.6 * n;
+      // cool bounce from the side opposite the key (low, so it tints the dark
+      // side faces + cast shadows rather than lifting everything)
+      rim.position.set(-s.keyX, 14, -s.keyZ);
     },
   };
 }

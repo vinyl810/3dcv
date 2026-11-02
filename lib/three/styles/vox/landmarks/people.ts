@@ -1,5 +1,4 @@
 import { characterModel, TAU } from '../common';
-import { charVariant } from '../chars';
 import { applyPose, buildRig, crouch, every, hopCurve, legBend, type Pose, type Rig } from '../rig';
 
 /**
@@ -22,7 +21,6 @@ export function buildPeople(m: Parameters<typeof characterModel>[0]): (t: number
     pose.lift = lift;
     return { rig, pose, lift };
   });
-  const toon = charVariant().id !== 'cur';
   return (t, sel) => {
     rigs.forEach(({ rig, pose, lift }, i) => {
         const P = pose as Record<string, [number, number, number]>;
@@ -36,7 +34,7 @@ export function buildPeople(m: Parameters<typeof characterModel>[0]): (t: number
         P.hips[2] = 0.04 * w; lift[0] = 0.2 * w;
         P.thighL[2] = -0.04 * w; P.thighR[2] = -0.04 * w;
         P.torso[2] = -0.05 * w;
-        if (toon) { lift[1] += 0.3 * Math.abs(Math.sin((t / 1.2) * Math.PI + ph)); P.head[2] += 0.07 * Math.sin((t / 1.2) * Math.PI + ph); }
+        { lift[1] += 0.3 * Math.abs(Math.sin((t / 1.2) * Math.PI + ph)); P.head[2] += 0.07 * Math.sin((t / 1.2) * Math.PI + ph); }
         P.head[0] = -0.22;
         // speaker looks at the audience; mentees glance at the speaker now and then
         P.head[1] = i === 2 ? 0.35 * Math.sin((t / 5) * TAU) : every(t, 6, 2, ph) * (i === 0 ? -0.5 : 0.5);

@@ -581,38 +581,6 @@
    resample the glyphs and blur the pixels. Hierarchy comes from colour,
    case and spacing instead of many sizes. */
 
-/* Model-style comparison bar (only with ?style= in the URL). */
-.styleBar {
-  position: fixed;
-  top: calc(12px + env(safe-area-inset-top));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 40;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 4px;
-  max-width: calc(100vw - 24px);
-  padding: 4px;
-  background: var(--panel);
-  border: 2px solid var(--panel-edge);
-  box-shadow: 3px 3px 0 var(--shadow);
-  font-family: var(--font-display);
-  font-size: 16px;
-}
-.styleBar a {
-  padding: 6px 8px;
-  color: var(--ink-dim);
-  text-decoration: none;
-}
-.styleBar a:hover {
-  color: var(--ink);
-}
-.styleBar a.styleOn {
-  background: var(--accent);
-  color: #1a1320;
-}
-
 @media (max-width: 640px) {
   .identity {
     top: calc(16px + env(safe-area-inset-top));
