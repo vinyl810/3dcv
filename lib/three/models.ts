@@ -1,16 +1,10 @@
 import * as THREE from 'three';
-import { buildSky, buildIsland, buildOcean, buildLights, buildVisitorMarks, buildNightLamp, kstHour, todAt } from './environment';
-import { P, color, emit, TAU } from './kit';
+import { buildSky, buildLights, buildVisitorMarks, kstHour, todAt } from './environment';
+import { P, emit, TAU } from './kit';
 import type { Mark } from '../marks-types';
-import { buildHub } from './landmarks/hub';
-import { buildEducation } from './landmarks/education';
-import { buildPublications } from './landmarks/publications';
-import { buildMonitor } from './landmarks/monitor';
-import { buildProjects } from './landmarks/projects';
-import { buildCoursework } from './landmarks/coursework';
-import { buildTrophy } from './landmarks/trophy';
-import { buildInvolvement } from './landmarks/involvement';
 import type { BuiltModel } from './kit';
+import type { StyleSet } from './styles/types';
+import { GRASS_TOP, LANDMARK_LAYOUT } from './layout';
 
 export interface InteractiveObject {
   root: THREE.Object3D;
@@ -33,9 +27,6 @@ export interface World {
   dispose: () => void;
 }
 
-/** Top of the grass slab — every landmark base rests here. */
-const GRASS_TOP = 0.5;
-
 /**
  * Global multiplier on every landmark's size. The island/base stays the same;
  * bumping this makes the props bigger so they read well when the whole scene is
@@ -52,25 +43,8 @@ const PROXY_PAD = 0.08; // horizontal margin on each side (world units)
 const PROXY_TOP = 0.12; // headroom above the model (the lift doesn't need covering)
 const PROXY_BOTTOM = 0.05; // skirt below the base
 
-interface Placement {
-  id: string;
-  label: string;
-  build: () => BuiltModel;
-  pos: [number, number]; // x, z on the grass
-  scale: number;
-}
-
-// stationId must match lib/cv-data.ts station ids. Order = CV / dot-nav order.
-const LANDMARKS: Placement[] = [
-  { id: 'about', label: 'About · @vinyl810', build: buildHub, pos: [0, 0], scale: 1 },
-  { id: 'education', label: 'Education', build: buildEducation, pos: [0, -6], scale: 1 },
-  { id: 'publications', label: 'Publications', build: buildPublications, pos: [-6.5, 1], scale: 0.95 },
-  { id: 'work', label: 'Work · KOAST', build: buildMonitor, pos: [4.5, 2.5], scale: 0.78 },
-  { id: 'projects', label: 'Projects', build: buildProjects, pos: [-1, 5], scale: 1 },
-  { id: 'coursework', label: 'Coursework', build: buildCoursework, pos: [-5, -4], scale: 1 },
-  { id: 'awards', label: 'Awards & Honors', build: buildTrophy, pos: [3, -5.5], scale: 1 },
-  { id: 'involvement', label: 'Involvement & Service', build: buildInvolvement, pos: [6, -1], scale: 1 },
-];
+// Positions / labels / keep-outs live in ./layout (shared by every style).
+const LANDMARKS = LANDMARK_LAYOUT;
 
 /** Glowing data-cable spokes from the hub to each landmark. */
 function buildCables(): { group: THREE.Group; update: (t: number) => void } {
@@ -113,17 +87,19 @@ function currentHour(): number {
       if (!Number.isNaN(h)) return ((h % 24) + 24) % 24;
     }
   }
-  return kstHour();
+  return -1; // live KST clock
 }
 
-export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World {
+export function buildWorld(
+  scene: THREE.Scene,
+  style: StyleSet,
+  initialMarks: Mark[] = [],
+): World {
   const lights = buildLights();
   scene.add(lights.group);
 
   const sky = buildSky();
   scene.add(sky.group);
-
-  const nightLamp = buildNightLamp();
 
   // Night-gated point lights (lanterns, deck lamp, …). Populated below; each
   // carries userData.nightBase (its on-intensity). All switch on only at night.
@@ -132,11 +108,13 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
   // Drive sky + lights + the night lamp + night point-lights from the Korean
   // clock (re-applied every frame so the scene slowly transitions with real
   // time). Applied once now so frame 0 is already correct.
+  const hour = currentHour();
+  let island: ReturnType<StyleSet['buildIsland']> | null = null;
   const applyTime = () => {
-    const s = todAt(currentHour());
+    const s = todAt(hour === -1 ? kstHour() : hour);
     sky.applyTod(s);
     lights.applyTod(s);
-    nightLamp.applyTod(s);
+    island?.applyTod?.(s);
     for (const L of nightLights) L.intensity = ((L.userData.nightBase as number) ?? 2.6) * s.star;
   };
   applyTime();
@@ -145,11 +123,11 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
   const floating = new THREE.Group();
   scene.add(floating);
 
-  const island = buildIsland();
+  island = style.buildIsland();
   nightLights.push(...island.nightLights);
   floating.add(island.group);
-  floating.add(nightLamp.group); // lamp bobs with the island
-  const ocean = buildOcean();
+  applyTime(); // re-apply now that the island's night lights exist
+  const ocean = style.buildOcean();
   floating.add(ocean.group);
   const cables = buildCables();
   floating.add(cables.group);
@@ -168,7 +146,7 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
   const box3 = new THREE.Box3();
 
   for (const L of LANDMARKS) {
-    const built = L.build();
+    const built = style.landmarks[L.id]();
     if (built.nightLight) nightLights.push(built.nightLight); // e.g. the hub deck lamp
     const sc = L.scale * PROP_SCALE; // final world scale for this landmark
 
@@ -232,7 +210,7 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
   const update = (t: number, dt: number) => {
     applyTime(); // live KST-driven sky + sun/shadows
     sky.update(t, dt);
-    island.update(t, dt);
+    island!.update(t, dt);
     ocean.update(t, dt);
     cables.update(t);
     marks.update(t);
@@ -266,4 +244,3 @@ export function buildWorld(scene: THREE.Scene, initialMarks: Mark[] = []): World
 
 // Re-export so engine.ts can import the types from one place.
 export type { BuiltModel };
-void color; // keep color import available to landmark-adjacent tooling

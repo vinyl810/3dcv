@@ -102,6 +102,39 @@ label) that persists for everyone — the island brightens as people leave trace
   `DATABASE_URL`/`POSTGRES_URL`). Local: `vercel env pull .env.local`. The live
   DB write+render path was not testable locally (only the no-DB UI was verified).
 
+## Known issues (audit 2026-11-02, not yet fixed)
+
+Ranked by severity. Fix later; recorded so they aren't lost.
+
+1. **Guestbook submit can hang** — `Experience.onPlant` / `TraceBox.submit` have no
+   try/catch; if the Server Action throws (network/DB), `busy` stays true and the
+   button is stuck on "Lighting…" (`components/TraceBox.tsx:35`).
+2. **Trophy confetti floats** — "resting on podium top" voxels sit at
+   `podiumTopY + 0.85` (=1.65) while the podium top is 0.8; burst confetti uses
+   `+0.82` too (`lib/three/landmarks/trophy.ts:54-72`). Should be ≈ `+0.035`.
+3. **Landmark xz duplicated 3×** — `models.ts` LANDMARKS, `environment.ts`
+   `blockers`, `lib/marks.ts` `KEEPOUT` (+ `MARK_COLORS_LEN` copy). Editing one
+   lets fireflies/decor land on a landmark. Centralise in a client-safe module.
+4. **Mobile perf** — 440 foam bubbles each own a SphereGeometry + cloned
+   transparent material (440 draw calls) → InstancedMesh. Also `currentHour()`
+   re-parses `location.search` every frame; ocean recomputes normals per frame.
+5. **Mark caps disagree** — server `RENDER_CAP` 150 vs client `CAP` 200, and the
+   client evicts by insertion order while initial marks arrive newest-first (would
+   drop the newest). Only triggers after 50+ plants in one session.
+6. **Dispose leaks (minor)** — `dispose()` skips every `BoxGeometry`, so cable
+   geometries never free; cloned materials are never disposed.
+7. **Sticky hover on touch** — after a tap `pointerActive` stays true, so the
+   tapped landmark stays lifted after closing the panel until the next touch.
+8. **Google Fonts `@import` still render-blocking** (`app/globals.css:2`) — Galmuri
+   was self-hosted but Press Start 2P / VT323 weren't.
+
+Docs/cleanup: README says "Ten themed landmarks" (8). This file lacks the
+day-night cycle (KST, `?h=` override), shadow rules (`applyShadowFlags` judges by
+emissive colour; `userData.noShadow`), waterfall/foam, and night-light plumbing
+(`userData.nightBase × s.star`). Dead code: no-op `cables.update`, `void color`
+(models), `usableW`/`pulse` (coursework), `card1` (publications), `boost` (music),
+tarot's shared emissive Color.
+
 ## User preferences
 
 - Communicates in **Korean** → respond in Korean.

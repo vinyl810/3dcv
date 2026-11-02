@@ -4,6 +4,7 @@ import { RenderPixelatedPass } from 'three/examples/jsm/postprocessing/RenderPix
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { buildWorld, type InteractiveObject, type World } from './models';
 import type { Mark } from '../marks-types';
+import type { StyleSet } from './styles/types';
 
 export interface DioramaCallbacks {
   onHover: (stationId: string | null, label: string | null) => void;
@@ -13,6 +14,8 @@ export interface DioramaCallbacks {
 }
 
 export interface DioramaOptions {
+  /** Model set to build the island with (already preloaded). */
+  style: StyleSet;
   /** Visitor marks (fireflies) to render on first build. */
   initialMarks?: Mark[];
 }
@@ -89,7 +92,7 @@ export class DioramaApp {
   private disposed = false;
   private ro?: ResizeObserver;
 
-  constructor(container: HTMLElement, callbacks: DioramaCallbacks, options: DioramaOptions = {}) {
+  constructor(container: HTMLElement, callbacks: DioramaCallbacks, options: DioramaOptions) {
     this.container = container;
     this.callbacks = callbacks;
     this.options = options;
@@ -144,7 +147,7 @@ export class DioramaApp {
     this.baseCamPos.copy(this.camera.position);
 
     // ---- build the world (lights + diorama + interactives + visitor marks) ----
-    this.world = buildWorld(this.scene, this.options.initialMarks ?? []);
+    this.world = buildWorld(this.scene, this.options.style, this.options.initialMarks ?? []);
     this.applyShadowFlags();
     for (const obj of this.world.interactives) {
       this.hoverState.set(obj.stationId, { obj, amount: 0 });

@@ -44,8 +44,15 @@ export default function SceneCanvas({
     let app: DioramaApp | null = null;
     let disposed = false;
 
-    // Dynamic import keeps three.js entirely out of the SSR bundle.
-    import('@/lib/three/engine').then(({ DioramaApp: App }) => {
+    // Dynamic import keeps three.js entirely out of the SSR bundle. The model
+    // style (?style=<id>) is its own chunk; its assets preload before building.
+    (async () => {
+      const [{ DioramaApp: App }, styles] = await Promise.all([
+        import('@/lib/three/engine'),
+        import('@/lib/three/styles'),
+      ]);
+      const style = await styles.loadStyle(styles.styleFromUrl());
+      await style.preload?.();
       if (disposed || !mountRef.current) return;
       app = new App(
         mountRef.current,
@@ -54,13 +61,13 @@ export default function SceneCanvas({
           onSelect: (id) => cb.current.onSelect(id),
           onReady: () => cb.current.onReady(),
         },
-        { initialMarks: marksRef.current },
+        { style, initialMarks: marksRef.current },
       );
       appRef.current = app;
       // Catch any marks that arrived between render and async init.
       app.syncMarks(marksRef.current);
       app.setMineMarks(mineRef.current);
-    });
+    })().catch((e) => console.error('scene init failed', e));
 
     return () => {
       disposed = true;

@@ -1,23 +1,19 @@
-/* Pixel-art fonts (graceful fallback to monospace if offline). */
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
-
-/* Galmuri11 — Korean pixel font for the Hangul name, now SELF-HOSTED. The old
-   jsDelivr @import was render-blocking and intermittently failed (the source of
-   the "waiting for cdn.jsdelivr.net" hang). SIL OFL 1.1 © 2019–2025 Lee Minseo
-   (quiple) — license at /fonts/Galmuri-OFL.md. */
+/* NeoDunggeunmo (Neo둥근모) — one pixel face for Latin + Hangul, SELF-HOSTED
+   (no render-blocking CDN @import). Drawn on a 16px grid: use 16px / 32px.
+   SIL OFL 1.1 © 2021–2026 Eunbin Jeong (Dalgona.) — license at
+   /fonts/NeoDunggeunmo-OFL.txt. */
 @font-face {
-  font-family: 'Galmuri11';
+  font-family: 'NeoDunggeunmo';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: local('Galmuri11 Regular'), url('/fonts/Galmuri11.woff2') format('woff2');
+  src: url('/fonts/NeoDunggeunmo.woff2') format('woff2');
 }
 
 :root {
-  --font-display: 'Press Start 2P', ui-monospace, 'Courier New', monospace;
-  --font-body: 'VT323', ui-monospace, 'Courier New', monospace;
-  /* Korean pixel face for 김대원 (graceful fallback to a system Korean font). */
-  --font-korean: 'Galmuri11', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-display: 'NeoDunggeunmo', ui-monospace, 'Courier New', monospace;
+  --font-body: 'NeoDunggeunmo', ui-monospace, 'Courier New', monospace;
+  --font-korean: 'NeoDunggeunmo', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
 
   /* Cohesive retro palette — reconciled with the 3D scene. */
   --sky-top: #2a3d66;

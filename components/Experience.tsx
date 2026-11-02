@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import SceneCanvas from './SceneCanvas';
 import Overlay from './Overlay';
 import TraceBox from './TraceBox';
+import StyleSwitcher from './StyleSwitcher';
 import styles from './ui.module.css';
 import { stationById, type Station } from '@/lib/cv-data';
 import { plantMark } from '@/app/actions';
@@ -133,6 +134,7 @@ export default function Experience({ initialMarks, total: total0, dbEnabled }: P
           onFindMine={findMine}
         />
       )}
+      <StyleSwitcher />
       <div className={`${styles.loader} ${ready ? styles.hide : ''}`}>
         <div className={styles.loaderInner}>
           <div className={styles.big}>DAEWON KIM</div>
